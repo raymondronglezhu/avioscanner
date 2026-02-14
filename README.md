@@ -1,6 +1,6 @@
-# Aeroscane
+# Aeroscan
 
-A dedicated project repository for Aeroscane.
+A dedicated project repository for Aeroscan.
 
 ## Getting Started
 
