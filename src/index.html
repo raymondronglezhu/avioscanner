@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aeroscan — Award Flight Dashboard</title>
+  <meta name="description" content="A simplified dashboard for discovering award flight availability powered by seats.aero" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <!-- ===== HEADER ===== -->
+  <header id="app-header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">✈</span>
+        <h1>Aeroscan</h1>
+      </div>
+      <p class="tagline">Award Flight Dashboard</p>
+    </div>
+    <div class="header-right">
+      <button id="settings-btn" class="btn-icon" title="Global Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+      <div id="api-status" class="status-dot" title="Checking API..."></div>
+    </div>
+  </header>
+
+  <!-- ===== GLOBAL SETTINGS PANEL ===== -->
+  <div id="settings-panel" class="settings-panel hidden">
+    <div class="settings-overlay" id="settings-overlay"></div>
+    <div class="settings-content">
+      <div class="settings-header">
+        <h2>Global Settings</h2>
+        <button id="settings-close" class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <p class="settings-desc">These settings apply to all trip searches. Change them here once instead of per-search.</p>
+      <div class="settings-form">
+        <div class="form-group">
+          <label for="setting-cabin">Cabin Class</label>
+          <select id="setting-cabin">
+            <option value="economy">Economy</option>
+            <option value="premium">Premium Economy</option>
+            <option value="business" selected>Business</option>
+            <option value="first">First</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="setting-seats">Number of Passengers</label>
+          <select id="setting-seats">
+            <option value="1" selected>1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Mileage Programs</label>
+          <div id="programs-list" class="programs-grid">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+        <button id="settings-save" class="btn-primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MAIN CONTENT ===== -->
+  <main id="dashboard">
+    <!-- ===== EMPTY STATE ===== -->
+    <div id="empty-state" class="empty-state">
+      <div class="empty-icon">🌍</div>
+      <h2>Where are you dreaming of going?</h2>
+      <p>Create your first trip idea to start scanning for award availability.</p>
+      <button id="empty-add-btn" class="btn-primary btn-lg">
+        <span>+</span> Create Trip Idea
+      </button>
+    </div>
+
+    <!-- ===== TRIP IDEAS GRID ===== -->
+    <div id="trips-container" class="trips-container hidden">
+      <div class="trips-header">
+        <h2>Your Trip Ideas</h2>
+        <div class="trips-actions">
+          <button id="refresh-all-btn" class="btn-secondary" title="Refresh Availability">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            Refresh All
+          </button>
+          <button id="add-trip-btn" class="btn-primary">
+            <span>+</span> New Trip
+          </button>
+        </div>
+      </div>
+      <div id="trips-grid" class="trips-grid">
+        <!-- Trip cards rendered by JS -->
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== ADD/EDIT TRIP MODAL ===== -->
+  <div id="trip-modal" class="modal hidden">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">New Trip Idea</h2>
+        <button id="modal-close" class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <form id="trip-form" class="trip-form">
+        <div class="form-group">
+          <label for="trip-name">Trip Name</label>
+          <input type="text" id="trip-name" placeholder="e.g., Tokyo Spring Trip" required />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="trip-origin">Origin (Airport Code)</label>
+            <input type="text" id="trip-origin" placeholder="e.g., SFO" maxlength="3" required />
+          </div>
+          <div class="form-group">
+            <label for="trip-destination">Destination (Airport Code)</label>
+            <input type="text" id="trip-destination" placeholder="e.g., NRT" maxlength="3" required />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="trip-start-date">From Date</label>
+            <input type="date" id="trip-start-date" required />
+          </div>
+          <div class="form-group">
+            <label for="trip-end-date">To Date</label>
+            <input type="date" id="trip-end-date" required />
+          </div>
+        </div>
+        <input type="hidden" id="trip-id" />
+        <div class="modal-actions">
+          <button type="button" id="modal-cancel" class="btn-secondary">Cancel</button>
+          <button type="submit" class="btn-primary">Save Trip Idea</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== AVAILABILITY DETAIL MODAL ===== -->
+  <div id="detail-modal" class="modal hidden">
+    <div class="modal-overlay" id="detail-overlay"></div>
+    <div class="modal-content modal-lg">
+      <div class="modal-header">
+        <h2 id="detail-title">Trip Details</h2>
+        <button id="detail-close" class="btn-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div id="detail-body" class="detail-body">
+        <!-- Availability details rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/main.js"></script>
+</body>
+</html>
