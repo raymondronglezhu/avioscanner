@@ -21,10 +21,31 @@ app.get('/api/health', (req, res) => {
 app.get('/api/search', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
-        const response = await fetch(`${BASE_URL}/search?${params.toString()}`, {
+        const apiUrl = `${BASE_URL}/search?${params.toString()}`;
+
+        console.log(`🔍 [Search Request] ${apiUrl}`);
+        console.log(`   Params:`, req.query);
+
+        const response = await fetch(apiUrl, {
             headers: { 'Partner-Authorization': API_KEY },
         });
+
+        if (!response.ok) {
+            console.error(`❌ External API Error: ${response.status} ${response.statusText}`);
+            const text = await response.text();
+            console.error(`   Body: ${text}`);
+            return res.status(response.status).json({ error: 'External API error', details: text });
+        }
+
         const data = await response.json();
+        console.log(`✅ [Search Success] Got ${data.data ? data.data.length : 0} results`);
+
+        if (data.data && data.data.length > 0) {
+            console.log(`   First result sample:`, JSON.stringify(data.data[0], null, 2));
+        } else {
+            console.log(`   (No results found in data array)`);
+        }
+
         res.json(data);
     } catch (error) {
         console.error('Search error:', error);

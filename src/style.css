@@ -69,7 +69,9 @@
 }
 
 /* --- Reset & Base --- */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -98,7 +100,7 @@ body::before {
   width: 200%;
   height: 200%;
   background: radial-gradient(ellipse at 30% 20%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 50%);
+    radial-gradient(ellipse at 70% 80%, rgba(139, 92, 246, 0.04) 0%, transparent 50%);
   pointer-events: none;
   z-index: 0;
 }
@@ -179,8 +181,15 @@ body::before {
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* --- Buttons --- */
@@ -299,8 +308,15 @@ body::before {
 }
 
 @keyframes float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-12px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-12px);
+  }
 }
 
 .empty-state h2 {
@@ -390,6 +406,7 @@ body::before {
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -550,15 +567,19 @@ body::before {
   background: var(--accent-light);
   animation: pulse-dot 1s ease infinite;
 }
+
 .status-available .status-icon {
   background: var(--success);
 }
+
 .status-limited .status-icon {
   background: var(--warning);
 }
+
 .status-unavailable .status-icon {
   background: var(--danger);
 }
+
 .status-idle .status-icon {
   background: var(--text-muted);
 }
@@ -598,8 +619,13 @@ body::before {
 }
 
 @keyframes slideInRight {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
 
 .settings-header {
@@ -651,6 +677,7 @@ body::before {
   font-size: var(--font-base);
   transition: all var(--transition-fast);
   outline: none;
+  width: 100%;
 }
 
 .form-group input::placeholder {
@@ -673,11 +700,58 @@ body::before {
   gap: var(--space-md);
 }
 
-/* Programs grid */
-.programs-grid {
+/* Programs grouping */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xl);
+}
+
+.alliance-group {
+  margin-bottom: var(--space-lg);
+}
+
+.alliance-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid var(--border);
+}
+
+.alliance-header h3 {
+  font-size: var(--font-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--accent-light);
+  letter-spacing: 0.5px;
+}
+
+.select-all-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.select-all-btn:hover {
+  color: var(--text-primary);
+}
+
+.alliance-programs {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-sm);
+}
+
+.programs-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
 }
 
 .program-chip {
@@ -776,6 +850,7 @@ body::before {
     opacity: 0;
     transform: scale(0.95) translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -848,7 +923,7 @@ body::before {
 
 .avail-row {
   display: grid;
-  grid-template-columns: 100px 1fr 100px 100px;
+  grid-template-columns: 100px 1fr 120px 80px 100px;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-md);
@@ -918,7 +993,9 @@ body::before {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* --- Utilities --- */
@@ -927,23 +1004,201 @@ body::before {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 /* --- Scrollbar --- */
 ::-webkit-scrollbar {
   width: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-hover);
   border-radius: 3px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
+}
+
+/* --- Detail Edit Controls --- */
+.title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  font-size: var(--font-xl);
+  font-weight: 700;
+  width: 100%;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.title-input:hover,
+.title-input:focus {
+  background: var(--bg-input);
+  border-color: var(--border);
+}
+
+.trip-edit-controls {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
+  animation: slideUp 0.3s ease;
+}
+
+.edit-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-lg);
+  flex-wrap: wrap;
+}
+
+.edit-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.edit-group label {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.input-merged {
+  display: flex;
+  align-items: center;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-xs);
+  transition: border-color var(--transition-fast);
+}
+
+.input-merged:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.input-merged input {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  /* Reduced side padding */
+  width: 120px;
+  /* Increased width */
+  text-align: center;
+  font-weight: 600;
+  font-size: var(--font-base);
+  text-transform: uppercase;
+  outline: none;
+  font-family: inherit;
+}
+
+.input-merged input:focus {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.input-merged .arrow,
+.input-merged .sep {
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+  padding: 0 4px;
+}
+
+.input-merged.dates input {
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+
+/* Fix date input icon color in dark mode */
+.input-merged.dates input::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.5;
+  cursor: pointer;
+}
+
+#btn-update-trip {
+  margin-left: auto;
+  height: 38px;
+  white-space: nowrap;
+}
+
+/* --- Trip Summary --- */
+.trip-summary-list {
+  margin-top: var(--space-sm);
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-sm);
+}
+
+.summary-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  padding: 8px 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  min-height: 50px;
+  transition: all var(--transition-fast);
+}
+
+.summary-item:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-elevated);
+}
+
+.sum-date {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-bottom: 2px;
+  font-weight: 500;
+}
+
+.sum-miles {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent-light);
+}
+
+.summary-more {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.sum-count {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.sum-from {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  line-height: 1.2;
 }
 
 /* --- Responsive --- */

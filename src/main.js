@@ -3,28 +3,39 @@
    ============================================= */
 
 // ---- Mileage Programs Reference ----
-const MILEAGE_PROGRAMS = [
-    { id: 'united', name: 'United MileagePlus' },
-    { id: 'aeroplan', name: 'Air Canada Aeroplan' },
-    { id: 'americanAirlines', name: 'American AAdvantage' },
-    { id: 'delta', name: 'Delta SkyMiles' },
-    { id: 'alaska', name: 'Alaska Mileage Plan' },
-    { id: 'virginatlantic', name: 'Virgin Atlantic' },
-    { id: 'jetblue', name: 'JetBlue TrueBlue' },
-    { id: 'southwest', name: 'Southwest Rapid Rewards' },
-    { id: 'flyingblue', name: 'Air France / KLM' },
-    { id: 'emirates', name: 'Emirates Skywards' },
-    { id: 'qantas', name: 'Qantas Frequent Flyer' },
-    { id: 'velocity', name: 'Virgin Australia' },
-    { id: 'asiamiles', name: 'Cathay Pacific Asia Miles' },
-    { id: 'smiles', name: 'GOL Smiles' },
-    { id: 'aeromexico', name: 'Aeromexico Rewards' },
-    { id: 'copaairlines', name: 'Copa ConnectMiles' },
-    { id: 'etihad', name: 'Etihad Guest' },
-    { id: 'turkish', name: 'Turkish Miles&Smiles' },
-    { id: 'lifemiles', name: 'Avianca LifeMiles' },
-    { id: 'eurobonus', name: 'SAS EuroBonus' },
-];
+const MILEAGE_PROGRAMS = {
+    'Star Alliance': [
+        { id: 'aeroplan', name: 'Air Canada Aeroplan' },
+        { id: 'united', name: 'United MileagePlus' },
+        { id: 'lifemiles', name: 'Avianca LifeMiles' },
+        { id: 'turkish', name: 'Turkish Miles&Smiles' },
+        { id: 'eurobonus', name: 'SAS EuroBonus' },
+        { id: 'copa', name: 'Copa ConnectMiles' } // Verify if copa or copaairlines
+    ],
+    'OneWorld': [
+        { id: 'american', name: 'American AAdvantage' },
+        { id: 'alaska', name: 'Alaska Mileage Plan' },
+        { id: 'qantas', name: 'Qantas Frequent Flyer' },
+        { id: 'asiamiles', name: 'Cathay Pacific Asia Miles' },
+        { id: 'british', name: 'British Airways Avios' }, // Likely 'british' based on patterns
+        { id: 'qatar', name: 'Qatar Privilege Club' },
+        { id: 'finnair', name: 'Finnair Plus' }
+    ],
+    'SkyTeam': [
+        { id: 'delta', name: 'Delta SkyMiles' },
+        { id: 'flyingblue', name: 'Air France / KLM' },
+        { id: 'virginatlantic', name: 'Virgin Atlantic' },
+        { id: 'aeromexico', name: 'Aeromexico Rewards' }
+    ],
+    'Others': [
+        { id: 'emirates', name: 'Emirates Skywards' },
+        { id: 'etihad', name: 'Etihad Guest' },
+        { id: 'velocity', name: 'Virgin Australia' },
+        { id: 'smiles', name: 'GOL Smiles' },
+        { id: 'jetblue', name: 'jetBlue TrueBlue' },
+        { id: 'southwest', name: 'Southwest Rapid Rewards' }
+    ]
+};
 
 // ---- State ----
 let trips = [];
@@ -40,8 +51,30 @@ function loadState() {
     try {
         const savedTrips = localStorage.getItem('aeroscan_trips');
         if (savedTrips) trips = JSON.parse(savedTrips);
+
         const savedSettings = localStorage.getItem('aeroscan_settings');
-        if (savedSettings) settings = JSON.parse(savedSettings);
+        if (savedSettings) {
+            settings = JSON.parse(savedSettings);
+
+            // MIGRATION: Fix old IDs
+            const idMap = {
+                'americanAirlines': 'american',
+                'britishairways': 'british',
+                'copaairlines': 'copa'
+            };
+
+            settings.programs = settings.programs.map(id => idMap[id] || id);
+
+            // Filter out any IDs that don't exist in our verified list to avoid errors
+            const validIds = new Set();
+            Object.values(MILEAGE_PROGRAMS).forEach(group => group.forEach(p => validIds.add(p.id)));
+
+            settings.programs = settings.programs.filter(id => validIds.has(id));
+
+            // Save the fixed settings immediately
+            saveSettings();
+        }
+
         const savedCache = localStorage.getItem('aeroscan_cache');
         if (savedCache) availabilityCache = JSON.parse(savedCache);
     } catch (e) {
@@ -73,25 +106,54 @@ async function checkHealth() {
 }
 
 async function searchAvailability(origin, destination, startDate, endDate) {
-    const params = new URLSearchParams({
+    const baseParams = {
         origin_airport: origin.toUpperCase(),
         destination_airport: destination.toUpperCase(),
         start_date: startDate,
         end_date: endDate,
         cabin: settings.cabin,
-        take: '50',
-    });
-
-    // Add selected programs
-    if (settings.programs.length > 0) {
-        params.set('source', settings.programs.join(','));
-    }
+        seats: settings.seats,
+    };
 
     try {
-        const res = await fetch(`/api/search?${params.toString()}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        return data;
+        let results = [];
+
+        // HYBRID STRATEGY:
+        // 1-2 Programs: Fetch them specifically (Parallel requests)
+        // >2 Programs: Fetch "All" and let client filter (Single request)
+        if (settings.programs.length > 0 && settings.programs.length <= 2) {
+            console.log(`🔎 Strategy: Specific fetch for ${settings.programs.join(', ')}`);
+            const promises = settings.programs.map(async (programId) => {
+                const p = new URLSearchParams({
+                    ...baseParams,
+                    take: '500',
+                    source: programId
+                });
+                const res = await fetch(`/api/search?${p.toString()}`);
+                if (!res.ok) {
+                    console.warn(`Failed to fetch ${programId}: ${res.status}`);
+                    return { data: [] }; // Return empty on failure to keep Promise.all alive
+                }
+                return await res.json();
+            });
+
+            const responses = await Promise.all(promises);
+            results = responses.flatMap(r => r.data || []);
+
+        } else {
+            console.log(`🔎 Strategy: Broad fetch (Client-side filter)`);
+            const p = new URLSearchParams({
+                ...baseParams,
+                take: '500'
+            });
+            const res = await fetch(`/api/search?${p.toString()}`);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const data = await res.json();
+            results = data.data || [];
+        }
+
+        return { data: results };
+
     } catch (error) {
         console.error('Search failed:', error);
         return null;
@@ -120,6 +182,46 @@ function renderTrips() {
         const statusClass = cache ? `status-${cache.status}` : 'status-idle';
         const statusText = getStatusText(cache);
         const count = cache?.data?.length ?? null;
+
+        let summaryHtml = '';
+        if (cache && cache.data && cache.data.length > 0) {
+            // Sort by mileage cost
+            const sorted = [...cache.data].sort((a, b) => (a.MileageCost || Infinity) - (b.MileageCost || Infinity));
+            const top2 = sorted.slice(0, 2);
+            const remaining = sorted.length - 2;
+
+            const items = top2.map(item => {
+                // Short date format (remove year)
+                let dateStr = formatDate(item.Date || item.date);
+                dateStr = dateStr.replace(/, \d{4}$/, '');
+
+                const miles = formatMiles(item.MileageCost || 0);
+                return `
+                    <div class="summary-item">
+                        <span class="sum-date">${dateStr}</span>
+                        <div class="sum-miles">${miles}</div>
+                    </div>
+                `;
+            }).join('');
+
+            let remainingHtml = '';
+            if (remaining > 0) {
+                const minRemaining = Math.min(...sorted.slice(2).map(a => a.MileageCost || Infinity));
+                remainingHtml = `
+                    <div class="summary-item summary-more">
+                        <span class="sum-count">+${remaining}</span>
+                        <div class="sum-from">from ${formatMiles(minRemaining)}</div>
+                    </div>
+                `;
+            }
+
+            summaryHtml = `
+                <div class="trip-summary-list">
+                    ${items}
+                    ${remainingHtml}
+                </div>
+            `;
+        }
 
         return `
       <div class="trip-card" data-id="${trip.id}" style="animation-delay: ${index * 0.05}s">
@@ -150,6 +252,7 @@ function renderTrips() {
           <span>${statusText}</span>
           ${count !== null && count > 0 ? `<span class="availability-count">${count}</span>` : ''}
         </div>
+        ${summaryHtml}
       </div>
     `;
     }).join('');
@@ -192,25 +295,63 @@ function getStatusText(cache) {
 // ---- Settings Panel ----
 function renderProgramsList() {
     const container = document.getElementById('programs-list');
-    container.innerHTML = MILEAGE_PROGRAMS.map(prog => `
-    <button class="program-chip ${settings.programs.includes(prog.id) ? 'active' : ''}" data-id="${prog.id}">
-      <span class="check">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-      </span>
-      ${prog.name}
-    </button>
-  `).join('');
+    container.innerHTML = Object.entries(MILEAGE_PROGRAMS).map(([alliance, progs]) => {
+        const allSelected = progs.every(p => settings.programs.includes(p.id));
+        return `
+      <div class="alliance-group">
+        <div class="alliance-header">
+          <h3>${alliance}</h3>
+          <button class="select-all-btn" data-alliance="${alliance}">
+            ${allSelected ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
+        <div class="alliance-programs">
+          ${progs.map(prog => `
+            <button class="program-chip ${settings.programs.includes(prog.id) ? 'active' : ''}" data-id="${prog.id}">
+              <span class="check">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+              </span>
+              ${prog.name}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    }).join('');
 
+    // Individual chip listeners
     container.querySelectorAll('.program-chip').forEach(chip => {
         chip.addEventListener('click', () => {
             const id = chip.dataset.id;
             if (settings.programs.includes(id)) {
                 settings.programs = settings.programs.filter(p => p !== id);
-                chip.classList.remove('active');
             } else {
                 settings.programs.push(id);
-                chip.classList.add('active');
             }
+            renderProgramsList(); // Re-render to update "Select All" status
+        });
+    });
+
+    // Select All listeners
+    container.querySelectorAll('.select-all-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const alliance = btn.dataset.alliance;
+            const progs = MILEAGE_PROGRAMS[alliance];
+            const allSelected = progs.every(p => settings.programs.includes(p.id));
+
+            if (allSelected) {
+                // Deselect all in this alliance
+                const idsToRemove = progs.map(p => p.id);
+                settings.programs = settings.programs.filter(id => !idsToRemove.includes(id));
+            } else {
+                // Select all in this alliance
+                progs.forEach(p => {
+                    if (!settings.programs.includes(p.id)) {
+                        settings.programs.push(p.id);
+                    }
+                });
+            }
+            renderProgramsList();
         });
     });
 }
@@ -328,18 +469,48 @@ function openDetailModal(id) {
 
     const cache = availabilityCache[trip.id];
 
-    document.getElementById('detail-title').textContent = trip.name;
+    // Title as Editable Input
+    const titleEl = document.getElementById('detail-title');
+    titleEl.innerHTML = `<input type="text" id="edit-trip-name" value="${escapeHtml(trip.name)}" class="title-input">`;
+
     const body = document.getElementById('detail-body');
 
+    // Edit Controls
+    const editControls = `
+    <div class="trip-edit-controls">
+      <div class="edit-row">
+        <div class="edit-group">
+            <label>Route</label>
+            <div class="input-merged">
+                <input type="text" id="edit-origin" value="${escapeHtml(trip.origin)}" maxlength="3" title="Origin">
+                <span class="arrow">→</span>
+                <input type="text" id="edit-dest" value="${escapeHtml(trip.destination)}" maxlength="3" title="Destination">
+            </div>
+        </div>
+        <div class="edit-group">
+            <label>Dates</label>
+            <div class="input-merged dates">
+                <input type="date" id="edit-start" value="${trip.startDate}" title="Start Date">
+                <span class="sep">—</span>
+                <input type="date" id="edit-end" value="${trip.endDate}" title="End Date">
+            </div>
+        </div>
+        <button id="btn-update-trip" class="btn-sm btn-primary">Update & Rescan</button>
+      </div>
+    </div>
+  `;
+
+    let contentHtml = '';
+
     if (!cache || !cache.data) {
-        body.innerHTML = `
+        contentHtml = `
       <div class="no-results">
         <div class="nr-icon">🔍</div>
-        <p>No availability data yet. Hit <strong>Refresh All</strong> to scan for seats.</p>
+        <p>No availability data yet. Hit <strong>Update & Rescan</strong> to scan for seats.</p>
       </div>
     `;
     } else if (cache.data.length === 0) {
-        body.innerHTML = `
+        contentHtml = `
       <div class="no-results">
         <div class="nr-icon">😕</div>
         <p>No award seats found for this route and date range.</p>
@@ -351,7 +522,7 @@ function openDetailModal(id) {
         const programs = [...new Set(cache.data.map(a => a.Source || a.source || 'Unknown'))];
         const minMiles = Math.min(...cache.data.map(a => a.MileageCost || a.mileage_cost || Infinity));
 
-        body.innerHTML = `
+        contentHtml = `
       <div class="detail-summary">
         <div class="summary-card">
           <div class="value">${totalResults}</div>
@@ -371,18 +542,22 @@ function openDetailModal(id) {
           <div>Date</div>
           <div>Route</div>
           <div>Program</div>
+          <div>Seats</div>
           <div style="text-align:right">Miles</div>
         </div>
         ${cache.data.slice(0, 50).map(a => {
-            const date = a.Date || a.date || '—';
-            const route = `${a.OriginAirport || a.origin_airport || trip.origin} → ${a.DestinationAirport || a.destination_airport || trip.destination}`;
-            const program = a.Source || a.source || '—';
-            const miles = a.MileageCost || a.mileage_cost || '—';
+            const date = a.Date || '—';
+            const route = `${a.Route?.OriginAirport || trip.origin} → ${a.Route?.DestinationAirport || trip.destination}`;
+            const program = String(a.Source).replace('Airlines', '').replace('Airways', ''); // Shorten name
+            const miles = a.MileageCost || '—';
+            const seats = a.RemainingSeats > 0 ? a.RemainingSeats : '—';
+
             return `
             <div class="avail-row">
               <div class="avail-date">${formatDate(date)}</div>
               <div class="avail-route">${route}</div>
               <div class="avail-program">${program}</div>
+              <div class="avail-seats">${seats} seat${seats !== 1 ? 's' : ''}</div>
               <div class="avail-miles">${typeof miles === 'number' ? formatMiles(miles) : miles}</div>
             </div>
           `;
@@ -391,7 +566,90 @@ function openDetailModal(id) {
     `;
     }
 
+    body.innerHTML = editControls + contentHtml;
     document.getElementById('detail-modal').classList.remove('hidden');
+
+    // Attach Update Listener
+    document.getElementById('btn-update-trip').addEventListener('click', () => updateTripDetails(id));
+}
+
+async function updateTripDetails(id) {
+    const trip = trips.find(t => t.id === id);
+    if (!trip) return;
+
+    const newName = document.getElementById('edit-trip-name').value.trim();
+    const newOrigin = document.getElementById('edit-origin').value.trim().toUpperCase();
+    const newDest = document.getElementById('edit-dest').value.trim().toUpperCase();
+    const newStart = document.getElementById('edit-start').value;
+    const newEnd = document.getElementById('edit-end').value;
+
+    if (!newName || !newOrigin || !newDest || !newStart || !newEnd) {
+        alert('Please fill in all fields.');
+        return;
+    }
+
+    // Update Trip
+    trip.name = newName;
+    trip.origin = newOrigin;
+    trip.destination = newDest;
+    trip.startDate = newStart;
+    trip.endDate = newEnd;
+
+    // Clear Cache
+    delete availabilityCache[id];
+
+    saveTrips();
+    saveCache();
+    renderDashboard(); // Update card in background
+
+    // Show loading state in modal
+    const btn = document.getElementById('btn-update-trip');
+    const originalText = btn.innerText;
+    btn.innerText = 'Scanning...';
+    btn.disabled = true;
+
+    // Refresh Data
+    const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate);
+
+    // Reuse refreshAll logic for data processing is complicated here because we need to update cache manually
+    // For simplicity, we'll replicate the filter logic or just call refreshAll?
+    // Calling refreshAll scans ALL trips. We want just THIS trip.
+    // So we replicate the filter logic.
+
+    if (result && result.data && result.data.length > 0) {
+        const cabinPrefix = getCabinPrefix(settings.cabin);
+        const relevantData = result.data.filter(item => {
+            const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
+            const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
+            const sourceId = item.Source || item.source;
+            return available === true &&
+                remaining >= settings.seats &&
+                (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
+        }).map(item => ({
+            ...item,
+            MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
+            RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
+            Source: item.Source || item.source || 'Unknown',
+            Date: item.Date || item.date
+        }));
+
+        const count = relevantData.length;
+        availabilityCache[trip.id] = {
+            status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
+            data: relevantData,
+            lastFetched: Date.now(),
+        };
+    } else {
+        availabilityCache[trip.id] = {
+            status: 'unavailable',
+            data: [],
+            lastFetched: Date.now(),
+        };
+    }
+
+    saveCache();
+    renderTrips(); // Update card status
+    openDetailModal(trip.id); // Re-render modal with new data
 }
 
 function closeDetailModal() {
@@ -411,10 +669,33 @@ async function refreshAll() {
         const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate);
 
         if (result && result.data && result.data.length > 0) {
-            const count = result.data.length;
+            // Filter and map data based on selected cabin
+            const cabinPrefix = getCabinPrefix(settings.cabin);
+            const relevantData = result.data.filter(item => {
+                const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
+                const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
+                const sourceId = item.Source || item.source;
+
+                // Only include if:
+                // 1. Available check passes
+                // 2. Has enough seats
+                // 3. Source is in user's selected programs
+                return available === true &&
+                    remaining >= settings.seats &&
+                    (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
+            }).map(item => ({
+                ...item,
+                // Normalize fields for display
+                MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
+                RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
+                Source: item.Source || item.source || 'Unknown',
+                Date: item.Date || item.date
+            }));
+
+            const count = relevantData.length;
             availabilityCache[trip.id] = {
-                status: count > 5 ? 'available' : 'limited',
-                data: result.data,
+                status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
+                data: relevantData,
                 lastFetched: Date.now(),
             };
         } else if (result) {
@@ -446,6 +727,16 @@ async function refreshAll() {
 }
 
 // ---- Utilities ----
+function getCabinPrefix(cabin) {
+    switch (cabin) {
+        case 'economy': return 'Y';
+        case 'premium': return 'W';
+        case 'business': return 'J';
+        case 'first': return 'F';
+        default: return 'Y';
+    }
+}
+
 function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
