@@ -1384,3 +1384,82 @@ body::before {
     gap: var(--space-sm);
   }
 }
+
+/* API Key Management in Settings */
+.settings-api-section {
+  padding: var(--space-md);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: var(--space-lg);
+}
+
+.key-status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: var(--space-sm);
+}
+
+.key-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.3px;
+}
+
+#api-status-text {
+  white-space: nowrap;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 8px var(--success-glow);
+}
+
+.status-dot.warning {
+  background: var(--warning);
+  box-shadow: 0 0 8px var(--warning-glow);
+}
+
+.status-dot.error {
+  background: var(--error);
+  box-shadow: 0 0 8px var(--error-glow);
+}
+
+.input-with-action {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.input-with-action input {
+  flex: 1;
+}
+
+.input-hint {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.input-hint a {
+  color: var(--accent-light);
+  text-decoration: none;
+}
+
+.input-hint a:hover {
+  text-decoration: underline;
+}
+
+#key-modal .modal-content {
+  max-width: 450px;
+}

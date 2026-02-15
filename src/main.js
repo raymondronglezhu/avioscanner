@@ -45,13 +45,17 @@ let settings = {
     programs: ['united', 'aeroplan', 'americanAirlines'],
 };
 let availabilityCache = {}; // tripId -> { status, data, lastFetched }
+let userApiKey = localStorage.getItem('seats_aero_api_key') || '';
+let apiVerified = false;
 
 // ---- Airport Database (Dynamic) ----
 let AIRPORTS = [];
 
 async function loadAirports() {
     try {
-        const res = await fetch('/api/airports');
+        const headers = {};
+        if (userApiKey) headers['x-api-key'] = userApiKey;
+        const res = await fetch('/api/airports', { headers });
         if (!res.ok) throw new Error('Failed to fetch');
         AIRPORTS = await res.json();
         console.log(`✈️  Loaded ${AIRPORTS.length} airports from API.`);
@@ -244,12 +248,16 @@ function saveCache() {
     localStorage.setItem('aeroscan_cache', JSON.stringify(availabilityCache));
 }
 
-// ---- API ----
-async function checkHealth() {
+// ---- API Helpers ----
+async function checkHealth(keyOverride = null) {
     try {
-        const res = await fetch('/api/health');
+        const headers = {};
+        if (keyOverride || userApiKey) {
+            headers['x-api-key'] = keyOverride || userApiKey;
+        }
+        const res = await fetch('/api/health', { headers });
         const data = await res.json();
-        return data.hasApiKey;
+        return data.status === 'ok' && data.hasApiKey === true;
     } catch {
         return false;
     }
@@ -265,6 +273,9 @@ async function searchAvailability(origin, destination, startDate, endDate) {
         seats: settings.seats,
     };
 
+    const headers = {};
+    if (userApiKey) headers['x-api-key'] = userApiKey;
+
     try {
         let results = [];
 
@@ -279,7 +290,7 @@ async function searchAvailability(origin, destination, startDate, endDate) {
                     take: '500',
                     source: programId
                 });
-                const res = await fetch(`/api/search?${p.toString()}`);
+                const res = await fetch(`/api/search?${p.toString()}`, { headers });
                 if (!res.ok) {
                     console.warn(`Failed to fetch ${programId}: ${res.status}`);
                     return { data: [] }; // Return empty on failure to keep Promise.all alive
@@ -296,7 +307,7 @@ async function searchAvailability(origin, destination, startDate, endDate) {
                 ...baseParams,
                 take: '500'
             });
-            const res = await fetch(`/api/search?${p.toString()}`);
+            const res = await fetch(`/api/search?${p.toString()}`, { headers });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = await res.json();
             results = data.data || [];
@@ -509,6 +520,7 @@ function renderProgramsList() {
 function openSettings() {
     document.getElementById('setting-cabin').value = settings.cabin;
     document.getElementById('setting-seats').value = settings.seats;
+    document.getElementById('user-api-key').value = userApiKey;
     renderProgramsList();
     document.getElementById('settings-panel').classList.remove('hidden');
 }
@@ -932,17 +944,7 @@ async function init() {
     await loadAirports();
     loadState();
     renderDashboard();
-
-    // Check API health
-    const statusDot = document.getElementById('api-status');
-    const healthy = await checkHealth();
-    if (healthy) {
-        statusDot.classList.add('connected');
-        statusDot.title = 'API connected';
-    } else {
-        statusDot.classList.add('error');
-        statusDot.title = 'API not connected — check server & .env';
-    }
+    updateApiStatus();
 
     // --- Event Listeners ---
 
@@ -951,6 +953,9 @@ async function init() {
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-overlay').addEventListener('click', closeSettings);
     document.getElementById('settings-save').addEventListener('click', saveSettingsForm);
+
+    // API Key (inside settings)
+    document.getElementById('key-save-btn').addEventListener('click', handleKeySave);
 
     // Trip Modal
     document.getElementById('empty-add-btn').addEventListener('click', openAddModal);
@@ -967,6 +972,7 @@ async function init() {
     // Refresh
     document.getElementById('refresh-all-btn').addEventListener('click', refreshAll);
 
+    // API Key Management (removed separate modal)
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
@@ -978,3 +984,64 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ---- API Key UI Handlers ----
+async function updateApiStatus() {
+    const statusDot = document.getElementById('api-status-dot');
+    const statusText = document.getElementById('api-status-text');
+    if (!statusDot || !statusText) return;
+
+    statusDot.className = 'status-dot';
+    statusText.textContent = 'Checking...';
+
+    const healthy = await checkHealth();
+
+    if (userApiKey) {
+        if (healthy) {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Verified Key';
+            apiVerified = true;
+        } else {
+            statusDot.classList.add('error');
+            statusText.textContent = 'Invalid / Expired';
+            apiVerified = false;
+        }
+    } else {
+        if (healthy) {
+            statusDot.classList.add('connected');
+            statusText.textContent = 'Verified (Server)';
+            apiVerified = true;
+        } else {
+            statusDot.classList.add('warning');
+            statusText.textContent = 'No Key Provided';
+            apiVerified = false;
+        }
+    }
+}
+
+// Removed openKeyModal and closeKeyModal
+
+async function handleKeySave() {
+    const keyInput = document.getElementById('user-api-key');
+    const saveBtn = document.getElementById('key-save-btn');
+    const newKey = keyInput.value.trim();
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Verifying...';
+
+    const isValid = await checkHealth(newKey);
+
+    if (isValid) {
+        userApiKey = newKey;
+        apiVerified = true;
+        localStorage.setItem('seats_aero_api_key', newKey);
+        updateApiStatus();
+        closeKeyModal();
+        loadAirports(); // Refresh airport list with new key
+    } else {
+        alert('Invalid API key. Please try again.');
+    }
+
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Verify & Save';
+}

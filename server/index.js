@@ -29,12 +29,18 @@ try {
     console.error('❌ Failed to load airports:', error);
 }
 
+// Helper: Get API Key (Header override or ENV fallback)
+function getApiKey(req) {
+    return req.headers['x-api-key'] || API_KEY;
+}
+
 app.use(cors());
 app.use(express.json());
 
 // Health check
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', hasApiKey: !!API_KEY });
+    const key = getApiKey(req);
+    res.json({ status: 'ok', hasApiKey: !!key });
 });
 
 // Proxy: Cached Search
@@ -46,8 +52,9 @@ app.get('/api/search', async (req, res) => {
         console.log(`🔍 [Search Request] ${apiUrl}`);
         console.log(`   Params:`, req.query);
 
+        const key = getApiKey(req);
         const response = await fetch(apiUrl, {
-            headers: { 'Partner-Authorization': API_KEY },
+            headers: { 'Partner-Authorization': key },
         });
 
         if (!response.ok) {
@@ -77,8 +84,9 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/availability', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
+        const key = getApiKey(req);
         const response = await fetch(`${BASE_URL}/availability?${params.toString()}`, {
-            headers: { 'Partner-Authorization': API_KEY },
+            headers: { 'Partner-Authorization': key },
         });
         const data = await response.json();
         res.json(data);
@@ -91,8 +99,9 @@ app.get('/api/availability', async (req, res) => {
 // Proxy: Get Trips
 app.get('/api/trips/:id', async (req, res) => {
     try {
+        const key = getApiKey(req);
         const response = await fetch(`${BASE_URL}/trips/${req.params.id}`, {
-            headers: { 'Partner-Authorization': API_KEY },
+            headers: { 'Partner-Authorization': key },
         });
         const data = await response.json();
         res.json(data);
@@ -106,8 +115,9 @@ app.get('/api/trips/:id', async (req, res) => {
 app.get('/api/routes', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
+        const key = getApiKey(req);
         const response = await fetch(`${BASE_URL}/routes?${params.toString()}`, {
-            headers: { 'Partner-Authorization': API_KEY },
+            headers: { 'Partner-Authorization': key },
         });
         const data = await response.json();
         res.json(data);
