@@ -46,6 +46,156 @@ let settings = {
 };
 let availabilityCache = {}; // tripId -> { status, data, lastFetched }
 
+// ---- Airport Database (Dynamic) ----
+let AIRPORTS = [];
+
+async function loadAirports() {
+    try {
+        const res = await fetch('/api/airports');
+        if (!res.ok) throw new Error('Failed to fetch');
+        AIRPORTS = await res.json();
+        console.log(`✈️  Loaded ${AIRPORTS.length} airports from API.`);
+    } catch (e) {
+        console.warn('Failed to load airport list.', e);
+    }
+}
+
+// ---- Autocomplete Logic ----
+let activeAutocomplete = null; // { input, dropdown, items, selectedIndex }
+
+function setupAutocomplete(inputId) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+
+    // Wrap the input for positioning if not already wrapped
+    if (!input.parentElement.classList.contains('autocomplete-wrapper')) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'autocomplete-wrapper';
+        input.parentNode.insertBefore(wrapper, input);
+        wrapper.appendChild(input);
+    }
+
+    input.addEventListener('input', (e) => handleAutocompleteInput(e, input));
+    input.addEventListener('keydown', (e) => handleAutocompleteKeydown(e, input));
+    input.addEventListener('blur', () => {
+        // Delay to allow click on dropdown item to register before removal
+        setTimeout(closeAutocomplete, 200);
+    });
+}
+
+function handleAutocompleteInput(e, input) {
+    const query = input.value.trim().toUpperCase();
+    closeAutocomplete();
+
+    if (query.length < 1) return;
+
+    const matches = AIRPORTS.filter(a =>
+        (a.iata && a.iata.includes(query)) ||
+        (a.name && a.name.toUpperCase().includes(query)) ||
+        (a.city && a.city.toUpperCase().includes(query))
+    );
+
+    if (matches.length === 0) return;
+
+    renderAutocompleteDropdown(input, matches);
+}
+
+function renderAutocompleteDropdown(input, matches) {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'autocomplete-dropdown';
+
+    matches.slice(0, 10).forEach((match, index) => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        const code = match.iata || match.code;
+        item.dataset.code = code;
+        item.innerHTML = `
+            <span class="airport-code-badge">${code}</span>
+            <div class="airport-info">
+                <span class="airport-name">${match.name}</span>
+                <span class="airport-city">${match.city || ''}</span>
+            </div>
+        `;
+
+        item.addEventListener('mouseenter', () => {
+            updateSelectedIndex(index);
+        });
+
+        item.addEventListener('mousedown', (e) => {
+            e.preventDefault(); // Prevent blur before selection
+            selectAirport(input, code);
+        });
+
+        dropdown.appendChild(item);
+    });
+
+    input.parentElement.appendChild(dropdown);
+    activeAutocomplete = {
+        input,
+        dropdown,
+        items: dropdown.querySelectorAll('.autocomplete-item'),
+        selectedIndex: -1
+    };
+
+    // Auto-highlight the first result
+    if (matches.length > 0) {
+        updateSelectedIndex(0);
+    }
+}
+
+function handleAutocompleteKeydown(e, input) {
+    if (!activeAutocomplete) return;
+
+    const { items, selectedIndex } = activeAutocomplete;
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        updateSelectedIndex(selectedIndex + 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        updateSelectedIndex(selectedIndex - 1);
+    } else if (e.key === 'Enter') {
+        if (selectedIndex >= 0) {
+            e.preventDefault();
+            selectAirport(input, items[selectedIndex].dataset.code);
+        }
+    } else if (e.key === 'Escape') {
+        closeAutocomplete();
+    }
+}
+
+function updateSelectedIndex(newIndex) {
+    if (!activeAutocomplete) return;
+    const { items, selectedIndex } = activeAutocomplete;
+
+    // Remove active class from old
+    if (selectedIndex >= 0 && items[selectedIndex]) {
+        items[selectedIndex].classList.remove('active');
+    }
+
+    // Wrap around
+    let nextIndex = newIndex;
+    if (nextIndex >= items.length) nextIndex = 0;
+    if (nextIndex < 0) nextIndex = items.length - 1;
+
+    items[nextIndex].classList.add('active');
+    items[nextIndex].scrollIntoView({ block: 'nearest' });
+    activeAutocomplete.selectedIndex = nextIndex;
+}
+
+function selectAirport(input, code) {
+    input.value = code;
+    input.dispatchEvent(new Event('input')); // Trigger any other listeners
+    closeAutocomplete();
+}
+
+function closeAutocomplete() {
+    if (activeAutocomplete) {
+        activeAutocomplete.dropdown.remove();
+        activeAutocomplete = null;
+    }
+}
+
 // ---- Persistence ----
 function loadState() {
     try {
@@ -391,6 +541,8 @@ function openAddModal() {
     document.getElementById('trip-start-date').value = formatDateInput(start);
     document.getElementById('trip-end-date').value = formatDateInput(end);
     document.getElementById('trip-modal').classList.remove('hidden');
+    setupAutocomplete('trip-origin');
+    setupAutocomplete('trip-destination');
 }
 
 function openEditModal(id) {
@@ -482,9 +634,9 @@ function openDetailModal(id) {
         <div class="edit-group">
             <label>Route</label>
             <div class="input-merged">
-                <input type="text" id="edit-origin" value="${escapeHtml(trip.origin)}" maxlength="3" title="Origin">
+                <input type="text" id="edit-origin" class="input-uppercase" value="${escapeHtml(trip.origin)}" maxlength="3" title="Origin">
                 <span class="arrow">→</span>
-                <input type="text" id="edit-dest" value="${escapeHtml(trip.destination)}" maxlength="3" title="Destination">
+                <input type="text" id="edit-dest" class="input-uppercase" value="${escapeHtml(trip.destination)}" maxlength="3" title="Destination">
             </div>
         </div>
         <div class="edit-group">
@@ -570,6 +722,10 @@ function openDetailModal(id) {
 
     body.innerHTML = editControls + contentHtml;
     document.getElementById('detail-modal').classList.remove('hidden');
+
+    // Attach Autocomplete for edit fields
+    setupAutocomplete('edit-origin');
+    setupAutocomplete('edit-dest');
 
     // Attach Update Listener
     document.getElementById('btn-update-trip').addEventListener('click', () => updateTripDetails(id));
@@ -773,6 +929,7 @@ function sleep(ms) {
 
 // ---- Init ----
 async function init() {
+    await loadAirports();
     loadState();
     renderDashboard();
 

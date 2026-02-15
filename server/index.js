@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 dotenv.config();
 
@@ -8,6 +11,23 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.SEATS_AERO_API_KEY;
 const BASE_URL = 'https://seats.aero/partnerapi';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load airports into memory
+const airportsPath = path.join(__dirname, 'data', 'airports.json');
+let AIRPORTS_DATA = [];
+try {
+    if (fs.existsSync(airportsPath)) {
+        AIRPORTS_DATA = JSON.parse(fs.readFileSync(airportsPath, 'utf8'));
+        console.log(`✈️  Loaded ${AIRPORTS_DATA.length} airports into memory.`);
+    } else {
+        console.warn('⚠️  airports.json not found. Autocomplete will be empty.');
+    }
+} catch (error) {
+    console.error('❌ Failed to load airports:', error);
+}
 
 app.use(cors());
 app.use(express.json());
@@ -95,6 +115,11 @@ app.get('/api/routes', async (req, res) => {
         console.error('Routes error:', error);
         res.status(500).json({ error: 'Failed to fetch routes' });
     }
+});
+
+// Set of helper to fetch static airports
+app.get('/api/airports', (req, res) => {
+    res.json(AIRPORTS_DATA);
 });
 
 app.listen(PORT, () => {

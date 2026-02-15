@@ -690,9 +690,7 @@ body::before {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-.form-group input[type="text"] {
-  text-transform: uppercase;
-}
+/* .form-group input[type="text"] removed text-transform: uppercase to allow mixed case trip names */
 
 .form-row {
   display: grid;
@@ -798,8 +796,114 @@ body::before {
   border-color: var(--accent);
 }
 
+/* Specific Utilities */
+.input-uppercase {
+  text-transform: uppercase !important;
+}
+
 .program-chip.active .check svg {
   display: block;
+}
+
+/* Autocomplete Dropdown */
+.autocomplete-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.autocomplete-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  max-height: 250px;
+  overflow-y: auto;
+  padding: var(--space-xs);
+  animation: autocompleteFadeIn 0.2s ease-out;
+  min-width: 280px;
+}
+
+@keyframes autocompleteFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.autocomplete-item {
+  padding: 10px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all var(--transition-fast);
+  font-size: var(--font-sm);
+}
+
+.autocomplete-item:hover,
+.autocomplete-item.active {
+  background: var(--bg-elevated);
+  color: var(--accent-light);
+}
+
+.autocomplete-item .airport-name {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  margin-left: var(--space-sm);
+  word-break: break-word;
+}
+
+.autocomplete-item:hover .airport-name,
+.autocomplete-item.active .airport-name {
+  color: var(--text-primary);
+}
+
+.autocomplete-item .airport-code-badge {
+  font-weight: 700;
+  color: var(--accent-light);
+  background: var(--accent-glow);
+  padding: 2px 6px;
+  border-radius: 4px;
+  min-width: 42px;
+  text-align: center;
+}
+
+.autocomplete-item .airport-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  margin-left: var(--space-sm);
+  overflow: hidden;
+}
+
+.autocomplete-item .airport-name {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  word-break: break-word;
+  line-height: 1.2;
+  width: 100%;
+}
+
+.autocomplete-item .airport-city {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .program-chip .check svg {
