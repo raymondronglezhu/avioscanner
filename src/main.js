@@ -279,6 +279,43 @@ function saveCache() {
 }
 
 // ---- API Helpers ----
+// ---- Deep Linking Helpers ----
+function generateQatarLink(item, cabin, tripOrigin, tripDest) {
+    const baseUrl = 'https://www.qatarairways.com/app/booking/redemption';
+
+    // Map internal cabin to Qatar bookingClass
+    let bookingClass = 'E'; // Economy
+    if (cabin === 'J' || cabin === 'business') bookingClass = 'B';
+    if (cabin === 'F' || cabin === 'first') bookingClass = 'F';
+
+    // Correction: Seats.aero API stores airport codes inside the Route object
+    const from = item.Route?.OriginAirport || tripOrigin || '';
+    const to = item.Route?.DestinationAirport || tripDest || '';
+
+    const params = new URLSearchParams({
+        widget: 'QR',
+        searchType: 'F',
+        addTaxToFare: 'Y',
+        minPurTime: '0',
+        selLang: 'en',
+        tripType: 'O',
+        fromStation: from,
+        toStation: to,
+        departing: item.Date,
+        bookingClass: bookingClass,
+        adults: '1',
+        children: '0',
+        infants: '0',
+        ofw: '0',
+        teenager: '0',
+        flexibleDate: 'off',
+        qmilesFlow: 'true',
+        allowRedemption: 'Y'
+    });
+
+    return `${baseUrl}?${params.toString()}`;
+}
+
 async function checkHealth(keyOverride = null) {
     try {
         const headers = {};
@@ -741,15 +778,19 @@ function openDetailModal(id) {
           <div>Seats</div>
           <div style="text-align:right">Miles</div>
         </div>
-        ${cache.data.slice(0, 50).map(a => {
+        ${cache.data.slice(0, 50).map((a, index) => {
             const date = a.Date || '—';
             const route = `${a.Route?.OriginAirport || trip.origin} → ${a.Route?.DestinationAirport || trip.destination}`;
             const program = String(a.Source).replace('Airlines', '').replace('Airways', ''); // Shorten name
             const miles = a.MileageCost || '—';
             const seats = a.RemainingSeats > 0 ? a.RemainingSeats : '—';
 
+            const isQatar = a.Source === 'qatar';
+            const clickableClass = isQatar ? 'clickable' : '';
+            const dataIndex = isQatar ? `data-index="${index}"` : '';
+
             return `
-            <div class="avail-row">
+            <div class="avail-row ${clickableClass}" ${dataIndex} ${isQatar ? 'title="Click to view on Qatar Airways"' : ''}>
               <div class="avail-date">${formatDate(date)}</div>
               <div class="avail-route">${route}</div>
               <div class="avail-program">${program}</div>
@@ -768,6 +809,16 @@ function openDetailModal(id) {
     // Attach Autocomplete for edit fields
     setupAutocomplete('edit-origin');
     setupAutocomplete('edit-dest');
+
+    // Attach Click Listeners for links
+    body.querySelectorAll('.avail-row.clickable').forEach(row => {
+        row.addEventListener('click', () => {
+            const index = row.dataset.index;
+            const item = cache.data[index];
+            const url = generateQatarLink(item, trip.cabin, trip.origin, trip.destination);
+            window.open(url, '_blank');
+        });
+    });
 
     // Attach Update Listener
     document.getElementById('btn-update-trip').addEventListener('click', () => updateTripDetails(id));
