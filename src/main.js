@@ -495,7 +495,9 @@ function openDetailModal(id) {
                 <input type="date" id="edit-end" value="${trip.endDate}" title="End Date">
             </div>
         </div>
-        <button id="btn-update-trip" class="btn-sm btn-primary">Update & Rescan</button>
+        <button id="btn-update-trip" class="btn-icon-square btn-primary" title="Refresh">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        </button>
       </div>
     </div>
   `;
@@ -506,7 +508,7 @@ function openDetailModal(id) {
         contentHtml = `
       <div class="no-results">
         <div class="nr-icon">🔍</div>
-        <p>No availability data yet. Hit <strong>Update & Rescan</strong> to scan for seats.</p>
+        <p>No availability data yet. Hit <strong>Refresh</strong> to scan for seats.</p>
       </div>
     `;
     } else if (cache.data.length === 0) {
@@ -604,8 +606,7 @@ async function updateTripDetails(id) {
 
     // Show loading state in modal
     const btn = document.getElementById('btn-update-trip');
-    const originalText = btn.innerText;
-    btn.innerText = 'Scanning...';
+    btn.classList.add('is-loading');
     btn.disabled = true;
 
     // Refresh Data

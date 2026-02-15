@@ -1056,7 +1056,7 @@ body::before {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: var(--space-md);
+  padding: 18px var(--space-lg) var(--space-lg);
   margin-bottom: var(--space-lg);
   animation: slideUp 0.3s ease;
 }
@@ -1064,14 +1064,16 @@ body::before {
 .edit-row {
   display: flex;
   align-items: flex-end;
-  gap: var(--space-lg);
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0;
+  flex-wrap: nowrap;
 }
 
 .edit-group {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
+  flex-shrink: 0;
 }
 
 .edit-group label {
@@ -1089,6 +1091,10 @@ body::before {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 0 var(--space-xs);
+  height: 36px;
+  width: 176px;
+  /* Mathematically balanced width X for 32px button */
+  flex-shrink: 0;
   transition: border-color var(--transition-fast);
 }
 
@@ -1102,15 +1108,26 @@ body::before {
   border: none;
   color: var(--text-primary);
   padding: 8px 12px;
-  /* Reduced side padding */
-  width: 120px;
-  /* Increased width */
+  width: 72px;
+  /* Fixed width for alignment with 176px container */
   text-align: center;
   font-weight: 600;
   font-size: var(--font-base);
   text-transform: uppercase;
   outline: none;
   font-family: inherit;
+}
+
+.input-merged.dates {
+  width: 332px;
+  /* Mathematically balanced width Y for 32px button */
+}
+
+.input-merged.dates input {
+  width: 148px;
+  /* Balanced width for dates in 332px container */
+  font-size: var(--font-sm);
+  font-weight: 500;
 }
 
 .input-merged input:focus {
@@ -1125,11 +1142,6 @@ body::before {
   padding: 0 4px;
 }
 
-.input-merged.dates input {
-  font-size: var(--font-sm);
-  font-weight: 500;
-}
-
 /* Fix date input icon color in dark mode */
 .input-merged.dates input::-webkit-calendar-picker-indicator {
   filter: invert(1);
@@ -1138,9 +1150,35 @@ body::before {
 }
 
 #btn-update-trip {
-  margin-left: auto;
-  height: 38px;
-  white-space: nowrap;
+  height: 32px;
+  width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  margin-bottom: 2px;
+  /* Centering offset (36px box - 32px button) / 2 */
+}
+
+#btn-update-trip svg {
+  width: 20px;
+  height: 20px;
+  transition: transform 0.3s ease;
+}
+
+#btn-update-trip.is-loading svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* --- Trip Summary --- */
