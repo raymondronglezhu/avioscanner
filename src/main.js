@@ -89,24 +89,55 @@ function setupAutocomplete(inputId) {
 
 function handleAutocompleteInput(e, input) {
     const query = input.value.trim().toUpperCase();
-    closeAutocomplete();
 
-    if (query.length < 1) return;
+    if (query.length < 1) {
+        closeAutocomplete();
+        return;
+    }
 
-    const matches = AIRPORTS.filter(a =>
-        (a.iata && a.iata.includes(query)) ||
-        (a.name && a.name.toUpperCase().includes(query)) ||
-        (a.city && a.city.toUpperCase().includes(query))
-    );
+    // Filter and score matches
+    const matches = AIRPORTS.map(a => {
+        let score = 0;
+        const iata = (a.iata || '').toUpperCase();
+        const name = (a.name || '').toUpperCase();
+        const city = (a.city || '').toUpperCase();
 
-    if (matches.length === 0) return;
+        if (iata === query) score = 100;
+        else if (iata.startsWith(query)) score = 80;
+        else if (name.startsWith(query)) score = 60;
+        else if (city.startsWith(query)) score = 50;
+        else if (iata.includes(query) || name.includes(query) || city.includes(query)) score = 10;
+
+        return score > 0 ? { ...a, score } : null;
+    }).filter(a => a !== null);
+
+    if (matches.length === 0) {
+        closeAutocomplete();
+        return;
+    }
+
+    // Sort by score descending, then by name
+    matches.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.name.localeCompare(b.name);
+    });
 
     renderAutocompleteDropdown(input, matches);
 }
 
 function renderAutocompleteDropdown(input, matches) {
-    const dropdown = document.createElement('div');
-    dropdown.className = 'autocomplete-dropdown';
+    let dropdown;
+
+    // Reuse existing dropdown if it belongs to the same input
+    if (activeAutocomplete && activeAutocomplete.input === input) {
+        dropdown = activeAutocomplete.dropdown;
+        dropdown.innerHTML = ''; // Fast clear
+    } else {
+        closeAutocomplete();
+        dropdown = document.createElement('div');
+        dropdown.className = 'autocomplete-dropdown';
+        input.parentElement.appendChild(dropdown);
+    }
 
     matches.slice(0, 10).forEach((match, index) => {
         const item = document.createElement('div');
@@ -133,7 +164,6 @@ function renderAutocompleteDropdown(input, matches) {
         dropdown.appendChild(item);
     });
 
-    input.parentElement.appendChild(dropdown);
     activeAutocomplete = {
         input,
         dropdown,
@@ -646,9 +676,9 @@ function openDetailModal(id) {
         <div class="edit-group">
             <label>Route</label>
             <div class="input-merged">
-                <input type="text" id="edit-origin" class="input-uppercase" value="${escapeHtml(trip.origin)}" maxlength="3" title="Origin">
+                <input type="text" id="edit-origin" class="input-uppercase" value="${escapeHtml(trip.origin)}" title="Origin">
                 <span class="arrow">→</span>
-                <input type="text" id="edit-dest" class="input-uppercase" value="${escapeHtml(trip.destination)}" maxlength="3" title="Destination">
+                <input type="text" id="edit-dest" class="input-uppercase" value="${escapeHtml(trip.destination)}" title="Destination">
             </div>
         </div>
         <div class="edit-group">
