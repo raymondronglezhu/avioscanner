@@ -17,7 +17,7 @@ let tripDefaults = {
 let availabilityCache = {}; // tripId -> { status, data, lastFetched }
 let currentDetailTripId = null;
 let userApiKey = localStorage.getItem('seats_aero_api_key') || '';
-let apiVerified = false;
+let apiVerified = localStorage.getItem('seats_aero_api_verified') === userApiKey && !!userApiKey;
 
 // ---- Airport Database (Dynamic) ----
 let AIRPORTS = [];
@@ -224,7 +224,12 @@ function setupCustomSelect(triggerId, options, onSelect) {
     const trigger = document.getElementById(triggerId);
     if (!trigger) return;
 
-    trigger.addEventListener('click', (e) => {
+    // Prevent stacking duplicate listeners on repeated calls
+    if (trigger._customSelectHandler) {
+        trigger.removeEventListener('click', trigger._customSelectHandler);
+    }
+
+    const handler = (e) => {
         e.stopPropagation();
 
         // Close any existing custom dropdown
@@ -271,7 +276,10 @@ function setupCustomSelect(triggerId, options, onSelect) {
             }
         };
         setTimeout(() => document.addEventListener('click', closeDropdown), 0);
-    });
+    };
+
+    trigger._customSelectHandler = handler;
+    trigger.addEventListener('click', handler);
 }
 
 // ---- Calendar Picker Component ----
@@ -532,8 +540,11 @@ async function checkHealth(keyOverride = null) {
     if (!key) return false;
 
     try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
         const headers = { 'x-api-key': key };
-        const res = await fetch('/api/health', { headers });
+        const res = await fetch('/api/health', { headers, signal: controller.signal });
+        clearTimeout(timeout);
         const data = await res.json();
         return data.status === 'ok' && data.hasApiKey === true;
     } catch {
@@ -708,12 +719,20 @@ function updateTripCard(tripId) {
     const card = grid.querySelector(`.trip-card[data-id="${tripId}"]`);
     if (!card) return;
 
-    // Fade out, swap content, fade back in
-    card.style.opacity = '0.4';
-    setTimeout(() => {
+    // Only fade the availability section, keep route/meta stable
+    const avail = card.querySelector('.card-availability');
+    const summary = card.querySelector('.trip-summary-list');
+    const targets = [avail, summary].filter(Boolean);
+
+    if (targets.length) {
+        targets.forEach(el => el.style.opacity = '0.4');
+        setTimeout(() => {
+            card.innerHTML = buildCardInnerHtml(trip);
+            // New elements start fully visible
+        }, 150);
+    } else {
         card.innerHTML = buildCardInnerHtml(trip);
-        card.style.opacity = '';
-    }, 150);
+    }
 }
 
 function getStatusText(cache) {
@@ -738,6 +757,44 @@ function closeSettings() {
 }
 
 // ---- Trip Modal ----
+const CABIN_OPTIONS = [
+    { value: 'economy', label: 'Economy' },
+    { value: 'premium', label: 'Premium Economy' },
+    { value: 'business', label: 'Business' },
+    { value: 'first', label: 'First' },
+];
+const SEATS_OPTIONS = [
+    { value: '1', label: '1' },
+    { value: '2', label: '2' },
+    { value: '3', label: '3' },
+    { value: '4', label: '4' },
+];
+
+function setTripCustomSelect(triggerId, hiddenId, value, label) {
+    const trigger = document.getElementById(triggerId);
+    const hidden = document.getElementById(hiddenId);
+    if (trigger) {
+        trigger.dataset.value = value;
+        trigger.querySelector('.custom-select-label').textContent = label;
+    }
+    if (hidden) hidden.value = value;
+}
+
+function setupTripCustomSelects(cabinVal, seatsVal) {
+    const cabinLabel = CABIN_OPTIONS.find(o => o.value === cabinVal)?.label || 'Business';
+    const seatsLabel = String(seatsVal);
+
+    setTripCustomSelect('trip-cabin-select', 'trip-cabin', cabinVal, cabinLabel);
+    setTripCustomSelect('trip-seats-select', 'trip-seats', String(seatsVal), seatsLabel);
+
+    setupCustomSelect('trip-cabin-select', CABIN_OPTIONS, (val, label) => {
+        setTripCustomSelect('trip-cabin-select', 'trip-cabin', val, label);
+    });
+    setupCustomSelect('trip-seats-select', SEATS_OPTIONS, (val, label) => {
+        setTripCustomSelect('trip-seats-select', 'trip-seats', val, label);
+    });
+}
+
 function openAddModal() {
     document.getElementById('modal-title').textContent = 'New Trip';
     document.getElementById('trip-form').reset();
@@ -750,8 +807,7 @@ function openAddModal() {
     document.getElementById('trip-start-date').value = formatDateInput(start);
     document.getElementById('trip-end-date').value = formatDateInput(end);
     // Prefill with last-used defaults
-    document.getElementById('trip-cabin').value = tripDefaults.cabin;
-    document.getElementById('trip-seats').value = tripDefaults.seats;
+    setupTripCustomSelects(tripDefaults.cabin, tripDefaults.seats);
     document.getElementById('trip-modal').classList.remove('hidden');
     setupAutocomplete('trip-origin');
     setupAutocomplete('trip-destination');
@@ -767,8 +823,7 @@ function openEditModal(id) {
     document.getElementById('trip-destination').value = trip.destination;
     document.getElementById('trip-start-date').value = trip.startDate;
     document.getElementById('trip-end-date').value = trip.endDate;
-    document.getElementById('trip-cabin').value = trip.cabin || 'business';
-    document.getElementById('trip-seats').value = trip.seats || 1;
+    setupTripCustomSelects(trip.cabin || 'business', trip.seats || 1);
     document.getElementById('trip-modal').classList.remove('hidden');
     setupAutocomplete('trip-origin');
     setupAutocomplete('trip-destination');
@@ -777,6 +832,8 @@ function openEditModal(id) {
 
 function closeModal() {
     closeCalendar();
+    const openDropdown = document.querySelector('.custom-dropdown');
+    if (openDropdown) openDropdown.remove();
     document.getElementById('trip-modal').classList.add('hidden');
 }
 
@@ -1270,7 +1327,15 @@ async function init() {
     }
 
     renderDashboard();
-    updateApiStatus();
+
+    // Set initial API key status based on stored key
+    if (userApiKey && apiVerified) {
+        setApiStatus('connected', 'Valid key');
+    } else if (userApiKey) {
+        setApiStatus('warning', 'Key not verified');
+    } else {
+        setApiStatus('error', 'Key required');
+    }
 
     // --- Event Listeners ---
 
@@ -1280,6 +1345,7 @@ async function init() {
     document.getElementById('settings-overlay').addEventListener('click', closeSettings);
 
     // API Key (inside settings)
+    setupApiKeyInput();
     document.getElementById('key-save-btn').addEventListener('click', handleKeySave);
 
     // Trip Modal
@@ -1317,42 +1383,39 @@ async function init() {
 document.addEventListener('DOMContentLoaded', init);
 
 // ---- API Key UI Handlers ----
-async function updateApiStatus() {
-    const statusDot = document.getElementById('api-status-dot');
-    const statusText = document.getElementById('api-status-text');
-    if (!statusDot || !statusText) return;
-
-    statusDot.className = 'status-dot';
-    statusText.textContent = 'Checking...';
-
-    const healthy = await checkHealth();
-
-    if (userApiKey) {
-        if (healthy) {
-            statusDot.classList.add('connected');
-            statusText.textContent = 'Verified Key';
-            apiVerified = true;
-        } else {
-            statusDot.classList.add('error');
-            statusText.textContent = 'Invalid / Expired';
-            apiVerified = false;
-        }
-    } else {
-        statusDot.classList.add('warning');
-        statusText.textContent = 'Key Required';
-        apiVerified = false;
-    }
+function setApiStatus(state, text) {
+    const dot = document.getElementById('api-status-dot');
+    const label = document.getElementById('api-status-text');
+    if (!dot || !label) return;
+    dot.className = 'status-dot';
+    if (state) dot.classList.add(state);
+    label.textContent = text;
 }
 
-// Removed openKeyModal and closeKeyModal
+function setupApiKeyInput() {
+    const keyInput = document.getElementById('user-api-key');
+    if (!keyInput) return;
+
+    keyInput.addEventListener('input', () => {
+        setApiStatus('error', 'Unverified key');
+        apiVerified = false;
+        localStorage.removeItem('seats_aero_api_verified');
+    });
+}
 
 async function handleKeySave() {
     const keyInput = document.getElementById('user-api-key');
     const saveBtn = document.getElementById('key-save-btn');
     const newKey = keyInput.value.trim();
 
+    if (!newKey) {
+        setApiStatus('error', 'Key required');
+        return;
+    }
+
     saveBtn.disabled = true;
     saveBtn.textContent = 'Verifying...';
+    setApiStatus('warning', 'Verifying...');
 
     const isValid = await checkHealth(newKey);
 
@@ -1360,11 +1423,13 @@ async function handleKeySave() {
         userApiKey = newKey;
         apiVerified = true;
         localStorage.setItem('seats_aero_api_key', newKey);
-        updateApiStatus();
-        closeKeyModal();
-        loadAirports(); // Refresh airport list with new key
+        localStorage.setItem('seats_aero_api_verified', newKey);
+        setApiStatus('connected', 'Valid key');
+        loadAirports();
     } else {
-        alert('Invalid API key. Please try again.');
+        apiVerified = false;
+        localStorage.removeItem('seats_aero_api_verified');
+        setApiStatus('error', 'Invalid key');
     }
 
     saveBtn.disabled = false;

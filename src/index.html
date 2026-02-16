@@ -149,22 +149,20 @@
         </div>
         <div class="form-row">
           <div class="form-group">
-            <label for="trip-cabin">Cabin Class</label>
-            <select id="trip-cabin">
-              <option value="economy">Economy</option>
-              <option value="premium">Premium Economy</option>
-              <option value="business">Business</option>
-              <option value="first">First</option>
-            </select>
+            <label>Cabin Class</label>
+            <div id="trip-cabin-select" class="custom-select trip-custom-select" data-value="business">
+              <span class="custom-select-label">Business</span>
+              <svg class="custom-select-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            <input type="hidden" id="trip-cabin" value="business" />
           </div>
           <div class="form-group">
-            <label for="trip-seats">Passengers</label>
-            <select id="trip-seats">
-              <option value="1">1</option>
-              <option value="2">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-            </select>
+            <label>Seats</label>
+            <div id="trip-seats-select" class="custom-select trip-custom-select" data-value="1">
+              <span class="custom-select-label">1</span>
+              <svg class="custom-select-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            <input type="hidden" id="trip-seats" value="1" />
           </div>
         </div>
         <input type="hidden" id="trip-id" />

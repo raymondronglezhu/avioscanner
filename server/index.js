@@ -42,10 +42,25 @@ function getApiKey(req, res) {
 app.use(cors());
 app.use(express.json());
 
-// Health check
-app.get('/api/health', (req, res) => {
+// Health check — validates the key against seats.aero
+// Hits /availability with no params: valid key returns 400 (missing param), invalid key returns 401.
+app.get('/api/health', async (req, res) => {
     const key = req.headers['x-api-key'];
-    res.json({ status: 'ok', hasApiKey: !!key });
+    if (!key) {
+        return res.json({ status: 'ok', hasApiKey: false });
+    }
+
+    try {
+        const response = await fetch(`${BASE_URL}/availability`, {
+            headers: { 'Partner-Authorization': key },
+        });
+
+        // 401 = bad key, 400 = key accepted but missing params (i.e. valid key)
+        const valid = response.status !== 401;
+        return res.json({ status: 'ok', hasApiKey: valid });
+    } catch {
+        return res.json({ status: 'ok', hasApiKey: false });
+    }
 });
 
 // Proxy: Cached Search
