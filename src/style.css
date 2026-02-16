@@ -372,7 +372,11 @@ body::before {
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
   cursor: pointer;
-  transition: all var(--transition-base);
+  transition: border-color var(--transition-base),
+              background var(--transition-base),
+              transform var(--transition-base),
+              box-shadow var(--transition-base),
+              opacity 150ms ease;
   position: relative;
   overflow: hidden;
   animation: slideUp 0.4s ease;
@@ -412,6 +416,7 @@ body::before {
     transform: translateY(0);
   }
 }
+
 
 /* Detail modal header actions (delete + close) */
 .modal-header-actions {
@@ -477,19 +482,35 @@ body::before {
   padding: 0 4px;
 }
 
+.card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
 .card-dates {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   color: var(--text-secondary);
   font-size: var(--font-sm);
-  margin-bottom: var(--space-md);
 }
 
 .card-dates svg {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
+}
+
+.card-cabin-tag {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
 }
 
 /* Availability status */
@@ -677,105 +698,12 @@ body::before {
   gap: var(--space-xl);
 }
 
-.alliance-group {
-  margin-bottom: var(--space-lg);
-}
-
-.alliance-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: var(--space-sm);
-  padding-bottom: var(--space-xs);
-  border-bottom: 1px solid var(--border);
-}
-
-.alliance-header h3 {
-  font-size: var(--font-sm);
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--accent-light);
-  letter-spacing: 0.5px;
-}
-
-.select-all-btn {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
-  font-weight: 600;
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.select-all-btn:hover {
-  color: var(--text-primary);
-}
-
-.alliance-programs {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-sm);
-}
-
-.programs-grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-}
-
-.program-chip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: var(--font-family);
-  font-size: var(--font-xs);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  user-select: none;
-}
-
-.program-chip:hover {
-  border-color: var(--border-hover);
-  background: var(--bg-elevated);
-}
-
-.program-chip.active {
-  border-color: var(--accent);
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--accent-light);
-}
-
-.program-chip .check {
-  width: 14px;
-  height: 14px;
-  border: 1.5px solid var(--text-muted);
-  border-radius: 3px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: all var(--transition-fast);
-}
-
-.program-chip.active .check {
-  background: var(--accent);
-  border-color: var(--accent);
-}
 
 /* Specific Utilities */
 .input-uppercase {
   text-transform: uppercase !important;
 }
 
-.program-chip.active .check svg {
-  display: block;
-}
 
 /* Autocomplete Dropdown */
 .autocomplete-wrapper {
@@ -878,13 +806,6 @@ body::before {
   letter-spacing: 0.5px;
 }
 
-.program-chip .check svg {
-  display: none;
-  width: 10px;
-  height: 10px;
-  color: #fff;
-}
-
 /* --- Modals --- */
 .modal {
   position: fixed;
@@ -937,6 +858,7 @@ body::before {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-md);
   margin-bottom: var(--space-lg);
 }
 
@@ -963,6 +885,10 @@ body::before {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+}
+
+#detail-results {
+  min-height: 200px;
 }
 
 .detail-summary {
@@ -1174,8 +1100,7 @@ body::before {
   border-radius: var(--radius-sm);
   padding: 0 var(--space-xs);
   height: 36px;
-  width: 176px;
-  /* Mathematically balanced width X for 32px button */
+  width: 140px;
   flex-shrink: 0;
   transition: border-color var(--transition-fast);
 }
@@ -1189,27 +1114,25 @@ body::before {
   background: transparent;
   border: none;
   color: var(--text-primary);
-  padding: 8px 12px;
-  width: 72px;
-  /* Fixed width for alignment with 176px container */
+  padding: 8px 6px;
+  width: 52px;
   text-align: center;
   font-weight: 600;
-  font-size: var(--font-base);
+  font-size: var(--font-sm);
   text-transform: uppercase;
   outline: none;
   font-family: inherit;
 }
 
 .input-merged.dates {
-  width: 332px;
-  /* Mathematically balanced width Y for 32px button */
+  width: 230px;
 }
 
 .input-merged.dates input {
-  width: 148px;
-  /* Balanced width for dates in 332px container */
-  font-size: var(--font-sm);
+  width: 90px;
+  font-size: var(--font-xs);
   font-weight: 500;
+  letter-spacing: 0.3px;
 }
 
 .input-merged input:focus {
@@ -1224,44 +1147,250 @@ body::before {
   padding: 0 4px;
 }
 
-/* Fix date input icon color in dark mode */
-.input-merged.dates input::-webkit-calendar-picker-indicator {
-  filter: invert(1);
-  opacity: 0.5;
-  cursor: pointer;
+/* ---- Calendar Picker ---- */
+.cal-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  padding: var(--space-sm);
+  animation: autocompleteFadeIn 0.2s ease-out;
+  width: 280px;
+  user-select: none;
 }
 
-#btn-update-trip {
-  height: 32px;
-  width: 32px;
+.cal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 4px 8px;
+}
+
+.cal-title {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cal-nav {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all var(--transition-fast);
+}
+
+.cal-nav:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-dow {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 4px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cal-day {
+  font-size: var(--font-xs);
+  text-align: center;
+  padding: 6px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  position: relative;
+}
+
+.cal-day:hover:not(.cal-disabled):not(.cal-empty) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.cal-empty {
+  cursor: default;
+}
+
+.cal-disabled {
+  color: var(--text-muted);
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.cal-today {
+  color: var(--accent-light);
+  font-weight: 700;
+}
+
+.cal-today::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 50%;
+}
+
+.cal-selected {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 600;
+}
+
+.cal-selected::after {
+  display: none;
+}
+
+.cal-in-range {
+  background: var(--accent-glow);
+  color: var(--accent-light);
+  border-radius: 0;
+}
+
+.cal-range-start {
+  border-radius: 6px 0 0 6px;
+}
+
+.cal-range-end {
+  border-radius: 0 6px 6px 0;
+}
+
+.cal-range-start.cal-range-end {
+  border-radius: 6px;
+}
+
+.cal-hover-range {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--accent-light);
+  border-radius: 0;
+}
+
+/* Detail header layout */
+.detail-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+
+.detail-selects {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+/* Custom select trigger */
+.custom-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 10px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+  position: relative;
+  user-select: none;
+  height: 36px;
   flex-shrink: 0;
-  padding: 0;
-  margin-bottom: 2px;
-  /* Centering offset (36px box - 32px button) / 2 */
 }
 
-#btn-update-trip svg {
-  width: 20px;
-  height: 20px;
-  transition: transform 0.3s ease;
+#cabin-select {
+  width: 136px;
 }
 
-#btn-update-trip.is-loading svg {
-  animation: spin 1s linear infinite;
+#seats-select {
+  width: 46px;
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
+.custom-select:hover {
+  border-color: var(--border-hover);
 }
+
+.custom-select-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.custom-select-label {
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.custom-select-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Custom dropdown (autocomplete-style) */
+.custom-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  overflow-y: auto;
+  padding: var(--space-xs);
+  animation: autocompleteFadeIn 0.2s ease-out;
+  min-width: 100%;
+}
+
+.custom-dropdown-item {
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.custom-dropdown-item.active {
+  background: var(--bg-elevated);
+  color: var(--accent-light);
+  font-weight: 600;
+}
+
+/* Date text inputs show YYYY-MM-DD */
+.date-text-input {
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+
 
 /* --- Trip Summary --- */
 .trip-summary-list {

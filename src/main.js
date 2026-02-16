@@ -2,47 +2,17 @@
    AVIOSCANNER — Main Application Logic
    ============================================= */
 
-// ---- Mileage Programs Reference ----
-const MILEAGE_PROGRAMS = {
-    'Star Alliance': [
-        { id: 'aeroplan', name: 'Air Canada Aeroplan' },
-        { id: 'united', name: 'United MileagePlus' },
-        { id: 'lifemiles', name: 'Avianca LifeMiles' },
-        { id: 'turkish', name: 'Turkish Miles&Smiles' },
-        { id: 'eurobonus', name: 'SAS EuroBonus' },
-        { id: 'copa', name: 'Copa ConnectMiles' } // Verify if copa or copaairlines
-    ],
-    'OneWorld': [
-        { id: 'american', name: 'American AAdvantage' },
-        { id: 'alaska', name: 'Alaska Mileage Plan' },
-        { id: 'qantas', name: 'Qantas Frequent Flyer' },
-        { id: 'asiamiles', name: 'Cathay Pacific Asia Miles' },
-        { id: 'british', name: 'British Airways Avios' }, // Likely 'british' based on patterns
-        { id: 'qatar', name: 'Qatar Privilege Club' },
-        { id: 'finnair', name: 'Finnair Plus' }
-    ],
-    'SkyTeam': [
-        { id: 'delta', name: 'Delta SkyMiles' },
-        { id: 'flyingblue', name: 'Air France / KLM' },
-        { id: 'virginatlantic', name: 'Virgin Atlantic' },
-        { id: 'aeromexico', name: 'Aeromexico Rewards' }
-    ],
-    'Others': [
-        { id: 'emirates', name: 'Emirates Skywards' },
-        { id: 'etihad', name: 'Etihad Guest' },
-        { id: 'velocity', name: 'Virgin Australia' },
-        { id: 'smiles', name: 'GOL Smiles' },
-        { id: 'jetblue', name: 'jetBlue TrueBlue' },
-        { id: 'southwest', name: 'Southwest Rapid Rewards' }
-    ]
-};
+// ---- Avios Programs (Finnair + Qatar) ----
+const AVIOS_PROGRAMS = ['finnair', 'qatar'];
 
 // ---- State ----
 let trips = [];
 let settings = {
+    programs: AVIOS_PROGRAMS,
+};
+let tripDefaults = {
     cabin: 'business',
     seats: 1,
-    programs: ['united', 'aeroplan', 'americanAirlines'],
 };
 let availabilityCache = {}; // tripId -> { status, data, lastFetched }
 let currentDetailTripId = null;
@@ -85,9 +55,19 @@ function setupAutocomplete(inputId) {
 
     input.addEventListener('input', (e) => handleAutocompleteInput(e, input));
     input.addEventListener('keydown', (e) => handleAutocompleteKeydown(e, input));
+    input.addEventListener('focus', () => {
+        input.select();
+        const query = input.value.trim().toUpperCase();
+        if (query.length >= 1) {
+            handleAutocompleteInput(null, input);
+        }
+    });
     input.addEventListener('blur', () => {
-        // Delay to allow click on dropdown item to register before removal
-        setTimeout(closeAutocomplete, 200);
+        setTimeout(() => {
+            if (activeAutocomplete && activeAutocomplete.input === input) {
+                closeAutocomplete();
+            }
+        }, 200);
     });
 }
 
@@ -228,7 +208,7 @@ function getAirportCity(iata) {
 
 function selectAirport(input, code) {
     input.value = code;
-    input.dispatchEvent(new Event('input')); // Trigger any other listeners
+    input.dispatchEvent(new Event('change', { bubbles: true }));
     closeAutocomplete();
 }
 
@@ -239,33 +219,255 @@ function closeAutocomplete() {
     }
 }
 
+// ---- Custom Select Dropdowns ----
+function setupCustomSelect(triggerId, options, onSelect) {
+    const trigger = document.getElementById(triggerId);
+    if (!trigger) return;
+
+    trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+
+        // Close any existing custom dropdown
+        const existing = document.querySelector('.custom-dropdown');
+        if (existing) {
+            const wasOwnDropdown = trigger.contains(existing);
+            existing.remove();
+            if (wasOwnDropdown) return;
+        }
+
+        const currentVal = trigger.dataset.value;
+        const dropdown = document.createElement('div');
+        dropdown.className = 'custom-dropdown';
+
+        dropdown.innerHTML = options.map(opt => `
+            <div class="custom-dropdown-item ${opt.value === currentVal ? 'active' : ''}" data-value="${opt.value}">
+                ${opt.label}
+            </div>
+        `).join('');
+
+        trigger.style.position = 'relative';
+        trigger.appendChild(dropdown);
+
+        const items = dropdown.querySelectorAll('.custom-dropdown-item');
+        items.forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                items.forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+            });
+            item.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const val = item.dataset.value;
+                const label = item.textContent.trim();
+                trigger.dataset.value = val;
+                onSelect(val, label);
+                dropdown.remove();
+            });
+        });
+
+        const closeDropdown = (ev) => {
+            if (!trigger.contains(ev.target)) {
+                dropdown.remove();
+                document.removeEventListener('click', closeDropdown);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeDropdown), 0);
+    });
+}
+
+// ---- Calendar Picker Component ----
+let activeCalendar = null;
+
+function toDateStr(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
+function parseDate(str) {
+    if (!str) return null;
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+
+function setupDateRange(startId, endId, onChange) {
+    const startEl = document.getElementById(startId);
+    const endEl = document.getElementById(endId);
+    if (!startEl || !endEl) return;
+
+    const openCalendar = (targetEl, isStart) => {
+        closeCalendar();
+        const currentStart = startEl.value;
+        const currentEnd = endEl.value;
+        renderCalendar(targetEl, currentStart, currentEnd, isStart, (picked) => {
+            if (isStart) {
+                startEl.value = picked;
+                // Auto-adjust end date if before start
+                if (endEl.value && endEl.value < picked) {
+                    endEl.value = picked;
+                }
+            } else {
+                endEl.value = picked;
+            }
+            closeCalendar();
+            if (onChange) onChange();
+        }, () => startEl.value, () => endEl.value);
+    };
+
+    startEl.addEventListener('click', (e) => { e.stopPropagation(); openCalendar(startEl, true); });
+    endEl.addEventListener('click', (e) => { e.stopPropagation(); openCalendar(endEl, false); });
+}
+
+function renderCalendar(anchorEl, startVal, endVal, isStart, onSelect, getStart, getEnd) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = toDateStr(today);
+
+    const initial = parseDate(isStart ? startVal : endVal) || today;
+    let viewYear = initial.getFullYear();
+    let viewMonth = initial.getMonth();
+
+    const wrapper = anchorEl.closest('.autocomplete-wrapper') || anchorEl.parentElement;
+    wrapper.style.position = 'relative';
+
+    const cal = document.createElement('div');
+    cal.className = 'cal-dropdown';
+    wrapper.appendChild(cal);
+
+    const minDate = isStart ? todayStr : null;
+
+    function render() {
+        const curStart = getStart();
+        const curEnd = getEnd();
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+            'July', 'August', 'September', 'October', 'November', 'December'];
+        const dayNames = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+
+        const firstDay = new Date(viewYear, viewMonth, 1);
+        let startDow = firstDay.getDay() - 1;
+        if (startDow < 0) startDow = 6;
+        const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+        let html = `
+            <div class="cal-header">
+                <button class="cal-nav" data-dir="-1">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                </button>
+                <span class="cal-title">${monthNames[viewMonth]} ${viewYear}</span>
+                <button class="cal-nav" data-dir="1">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                </button>
+            </div>
+            <div class="cal-grid">
+                ${dayNames.map(d => `<div class="cal-dow">${d}</div>`).join('')}
+        `;
+
+        for (let i = 0; i < startDow; i++) {
+            html += `<div class="cal-day cal-empty"></div>`;
+        }
+
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateStr = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            const isPast = dateStr < todayStr;
+            const isDisabled = isPast || (!isStart && curStart && dateStr < curStart);
+            const isToday = dateStr === todayStr;
+            const isSelected = dateStr === curStart || dateStr === curEnd;
+            const isInRange = curStart && curEnd && dateStr > curStart && dateStr < curEnd;
+            const isRangeStart = dateStr === curStart;
+            const isRangeEnd = dateStr === curEnd;
+
+            const classes = ['cal-day'];
+            if (isDisabled) classes.push('cal-disabled');
+            if (isToday) classes.push('cal-today');
+            if (isSelected) classes.push('cal-selected');
+            if (isInRange) classes.push('cal-in-range');
+            if (isRangeStart && curEnd) classes.push('cal-range-start');
+            if (isRangeEnd && curStart) classes.push('cal-range-end');
+
+            html += `<div class="${classes.join(' ')}" data-date="${dateStr}">${day}</div>`;
+        }
+
+        html += `</div>`;
+        cal.innerHTML = html;
+
+        // Navigation
+        cal.querySelectorAll('.cal-nav').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dir = parseInt(btn.dataset.dir);
+                viewMonth += dir;
+                if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+                if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+                render();
+            });
+        });
+
+        // Day selection
+        cal.querySelectorAll('.cal-day:not(.cal-disabled):not(.cal-empty)').forEach(dayEl => {
+            dayEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                onSelect(dayEl.dataset.date);
+            });
+
+            // Hover preview for range
+            dayEl.addEventListener('mouseenter', () => {
+                if (!isStart && curStart) {
+                    cal.querySelectorAll('.cal-day').forEach(d => {
+                        d.classList.remove('cal-hover-range');
+                        if (d.dataset.date && d.dataset.date > curStart && d.dataset.date <= dayEl.dataset.date) {
+                            d.classList.add('cal-hover-range');
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    render();
+
+    activeCalendar = { el: cal, close: () => { cal.remove(); activeCalendar = null; } };
+
+    const closeOnClickOutside = (e) => {
+        if (!cal.contains(e.target) && e.target !== anchorEl) {
+            closeCalendar();
+            document.removeEventListener('click', closeOnClickOutside);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeOnClickOutside), 0);
+}
+
+function closeCalendar() {
+    if (activeCalendar) {
+        activeCalendar.close();
+    }
+}
+
 // ---- Persistence ----
 function loadState() {
     try {
         const savedTrips = localStorage.getItem('avioscanner_trips');
         if (savedTrips) trips = JSON.parse(savedTrips);
 
+        // Migrate old trips that lack cabin/seats (use old global settings as fallback)
         const savedSettings = localStorage.getItem('avioscanner_settings');
+        let oldCabin = 'business';
+        let oldSeats = 1;
         if (savedSettings) {
-            settings = JSON.parse(savedSettings);
+            const parsed = JSON.parse(savedSettings);
+            oldCabin = parsed.cabin || 'business';
+            oldSeats = parsed.seats || 1;
+        }
+        for (const trip of trips) {
+            if (!trip.cabin) trip.cabin = oldCabin;
+            if (!trip.seats) trip.seats = oldSeats;
+        }
 
-            // MIGRATION: Fix old IDs
-            const idMap = {
-                'americanAirlines': 'american',
-                'britishairways': 'british',
-                'copaairlines': 'copa'
-            };
-
-            settings.programs = settings.programs.map(id => idMap[id] || id);
-
-            // Filter out any IDs that don't exist in our verified list to avoid errors
-            const validIds = new Set();
-            Object.values(MILEAGE_PROGRAMS).forEach(group => group.forEach(p => validIds.add(p.id)));
-
-            settings.programs = settings.programs.filter(id => validIds.has(id));
-
-            // Save the fixed settings immediately
-            saveSettings();
+        // Load last-used defaults for new trips
+        const savedDefaults = localStorage.getItem('avioscanner_defaults');
+        if (savedDefaults) {
+            const parsed = JSON.parse(savedDefaults);
+            tripDefaults.cabin = parsed.cabin || 'business';
+            tripDefaults.seats = parsed.seats || 1;
         }
 
         const savedCache = localStorage.getItem('avioscanner_cache');
@@ -279,8 +481,8 @@ function saveTrips() {
     localStorage.setItem('avioscanner_trips', JSON.stringify(trips));
 }
 
-function saveSettings() {
-    localStorage.setItem('avioscanner_settings', JSON.stringify(settings));
+function saveDefaults() {
+    localStorage.setItem('avioscanner_defaults', JSON.stringify(tripDefaults));
 }
 
 function saveCache() {
@@ -339,14 +541,14 @@ async function checkHealth(keyOverride = null) {
     }
 }
 
-async function searchAvailability(origin, destination, startDate, endDate) {
+async function searchAvailability(origin, destination, startDate, endDate, cabin = 'business', seats = 1) {
     const baseParams = {
         origin_airport: origin.toUpperCase(),
         destination_airport: destination.toUpperCase(),
         start_date: startDate,
         end_date: endDate,
-        cabin: settings.cabin,
-        seats: settings.seats,
+        cabin: cabin,
+        seats: seats,
     };
 
     const headers = {};
@@ -416,56 +618,50 @@ function renderDashboard() {
     }
 }
 
-function renderTrips() {
-    const grid = document.getElementById('trips-grid');
-    grid.innerHTML = trips.map((trip, index) => {
-        const cache = availabilityCache[trip.id];
-        const statusClass = cache ? `status-${cache.status}` : 'status-idle';
-        const statusText = getStatusText(cache);
-        const count = cache?.data?.length ?? null;
+function buildCardInnerHtml(trip) {
+    const cache = availabilityCache[trip.id];
+    const statusClass = cache ? `status-${cache.status}` : 'status-idle';
+    const statusText = getStatusText(cache);
+    const count = cache?.data?.length ?? null;
 
-        let summaryHtml = '';
-        if (cache && cache.data && cache.data.length > 0) {
-            // Sort by mileage cost
-            const sorted = [...cache.data].sort((a, b) => (a.MileageCost || Infinity) - (b.MileageCost || Infinity));
-            const top2 = sorted.slice(0, 2);
-            const remaining = sorted.length - 2;
+    let summaryHtml = '';
+    if (cache && cache.data && cache.data.length > 0) {
+        const sorted = [...cache.data].sort((a, b) => (a.MileageCost || Infinity) - (b.MileageCost || Infinity));
+        const top2 = sorted.slice(0, 2);
+        const remaining = sorted.length - 2;
 
-            const items = top2.map(item => {
-                // Short date format (remove year)
-                let dateStr = formatDate(item.Date || item.date);
-                dateStr = dateStr.replace(/, \d{4}$/, '');
+        const items = top2.map(item => {
+            let dateStr = formatDate(item.Date || item.date);
+            dateStr = dateStr.replace(/, \d{4}$/, '');
+            const miles = formatMiles(item.MileageCost || 0);
+            return `
+                <div class="summary-item">
+                    <span class="sum-date">${dateStr}</span>
+                    <div class="sum-miles">${miles}</div>
+                </div>
+            `;
+        }).join('');
 
-                const miles = formatMiles(item.MileageCost || 0);
-                return `
-                    <div class="summary-item">
-                        <span class="sum-date">${dateStr}</span>
-                        <div class="sum-miles">${miles}</div>
-                    </div>
-                `;
-            }).join('');
-
-            let remainingHtml = '';
-            if (remaining > 0) {
-                const minRemaining = Math.min(...sorted.slice(2).map(a => a.MileageCost || Infinity));
-                remainingHtml = `
-                    <div class="summary-item summary-more">
-                        <span class="sum-count">+${remaining}</span>
-                        <div class="sum-from">from ${formatMiles(minRemaining)}</div>
-                    </div>
-                `;
-            }
-
-            summaryHtml = `
-                <div class="trip-summary-list">
-                    ${items}
-                    ${remainingHtml}
+        let remainingHtml = '';
+        if (remaining > 0) {
+            const minRemaining = Math.min(...sorted.slice(2).map(a => a.MileageCost || Infinity));
+            remainingHtml = `
+                <div class="summary-item summary-more">
+                    <span class="sum-count">+${remaining}</span>
+                    <div class="sum-from">from ${formatMiles(minRemaining)}</div>
                 </div>
             `;
         }
 
-        return `
-      <div class="trip-card" data-id="${trip.id}" style="animation-delay: ${index * 0.05}s">
+        summaryHtml = `
+            <div class="trip-summary-list">
+                ${items}
+                ${remainingHtml}
+            </div>
+        `;
+    }
+
+    return `
         <div class="card-route">
           <span class="airport-code">${escapeHtml(trip.origin)}</span>
           <div class="route-line">
@@ -473,9 +669,12 @@ function renderTrips() {
           </div>
           <span class="airport-code">${escapeHtml(trip.destination)}</span>
         </div>
-        <div class="card-dates">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          ${formatDate(trip.startDate)} — ${formatDate(trip.endDate)}
+        <div class="card-meta">
+          <span class="card-dates">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            ${formatDate(trip.startDate)} — ${formatDate(trip.endDate)}
+          </span>
+          <span class="card-cabin-tag">${getCabinLabel(trip.cabin)}${trip.seats > 1 ? ` · ${trip.seats} seats` : ''}</span>
         </div>
         <div class="card-availability ${statusClass}">
           <span class="status-icon"></span>
@@ -483,16 +682,38 @@ function renderTrips() {
           ${count !== null && count > 0 ? `<span class="availability-count">${count}</span>` : ''}
         </div>
         ${summaryHtml}
-      </div>
     `;
+}
+
+function renderTrips() {
+    const grid = document.getElementById('trips-grid');
+    grid.innerHTML = trips.map((trip, index) => {
+        return `<div class="trip-card" data-id="${trip.id}" style="animation-delay: ${index * 0.05}s">
+            ${buildCardInnerHtml(trip)}
+        </div>`;
     }).join('');
 
-    // Attach event listeners — card click opens detail
     grid.querySelectorAll('.trip-card').forEach(card => {
         card.addEventListener('click', () => {
             openDetailModal(card.dataset.id);
         });
     });
+}
+
+function updateTripCard(tripId) {
+    const trip = trips.find(t => t.id === tripId);
+    if (!trip) return;
+
+    const grid = document.getElementById('trips-grid');
+    const card = grid.querySelector(`.trip-card[data-id="${tripId}"]`);
+    if (!card) return;
+
+    // Fade out, swap content, fade back in
+    card.style.opacity = '0.4';
+    setTimeout(() => {
+        card.innerHTML = buildCardInnerHtml(trip);
+        card.style.opacity = '';
+    }, 150);
 }
 
 function getStatusText(cache) {
@@ -507,90 +728,13 @@ function getStatusText(cache) {
 }
 
 // ---- Settings Panel ----
-function renderProgramsList() {
-    const container = document.getElementById('programs-list');
-    container.innerHTML = Object.entries(MILEAGE_PROGRAMS).map(([alliance, progs]) => {
-        const allSelected = progs.every(p => settings.programs.includes(p.id));
-        return `
-      <div class="alliance-group">
-        <div class="alliance-header">
-          <h3>${alliance}</h3>
-          <button class="select-all-btn" data-alliance="${alliance}">
-            ${allSelected ? 'Deselect All' : 'Select All'}
-          </button>
-        </div>
-        <div class="alliance-programs">
-          ${progs.map(prog => `
-            <button class="program-chip ${settings.programs.includes(prog.id) ? 'active' : ''}" data-id="${prog.id}">
-              <span class="check">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-              </span>
-              ${prog.name}
-            </button>
-          `).join('')}
-        </div>
-      </div>
-    `;
-    }).join('');
-
-    // Individual chip listeners
-    container.querySelectorAll('.program-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            const id = chip.dataset.id;
-            if (settings.programs.includes(id)) {
-                settings.programs = settings.programs.filter(p => p !== id);
-            } else {
-                settings.programs.push(id);
-            }
-            renderProgramsList(); // Re-render to update "Select All" status
-        });
-    });
-
-    // Select All listeners
-    container.querySelectorAll('.select-all-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const alliance = btn.dataset.alliance;
-            const progs = MILEAGE_PROGRAMS[alliance];
-            const allSelected = progs.every(p => settings.programs.includes(p.id));
-
-            if (allSelected) {
-                // Deselect all in this alliance
-                const idsToRemove = progs.map(p => p.id);
-                settings.programs = settings.programs.filter(id => !idsToRemove.includes(id));
-            } else {
-                // Select all in this alliance
-                progs.forEach(p => {
-                    if (!settings.programs.includes(p.id)) {
-                        settings.programs.push(p.id);
-                    }
-                });
-            }
-            renderProgramsList();
-        });
-    });
-}
-
 function openSettings() {
-    document.getElementById('setting-cabin').value = settings.cabin;
-    document.getElementById('setting-seats').value = settings.seats;
     document.getElementById('user-api-key').value = userApiKey;
-    renderProgramsList();
     document.getElementById('settings-panel').classList.remove('hidden');
 }
 
 function closeSettings() {
     document.getElementById('settings-panel').classList.add('hidden');
-}
-
-function saveSettingsForm() {
-    settings.cabin = document.getElementById('setting-cabin').value;
-    settings.seats = parseInt(document.getElementById('setting-seats').value, 10);
-    saveSettings();
-    closeSettings();
-    // Clear cache since settings changed
-    availabilityCache = {};
-    saveCache();
-    renderDashboard();
 }
 
 // ---- Trip Modal ----
@@ -605,9 +749,13 @@ function openAddModal() {
     end.setDate(end.getDate() + 7);
     document.getElementById('trip-start-date').value = formatDateInput(start);
     document.getElementById('trip-end-date').value = formatDateInput(end);
+    // Prefill with last-used defaults
+    document.getElementById('trip-cabin').value = tripDefaults.cabin;
+    document.getElementById('trip-seats').value = tripDefaults.seats;
     document.getElementById('trip-modal').classList.remove('hidden');
     setupAutocomplete('trip-origin');
     setupAutocomplete('trip-destination');
+    setupDateRange('trip-start-date', 'trip-end-date');
 }
 
 function openEditModal(id) {
@@ -619,12 +767,16 @@ function openEditModal(id) {
     document.getElementById('trip-destination').value = trip.destination;
     document.getElementById('trip-start-date').value = trip.startDate;
     document.getElementById('trip-end-date').value = trip.endDate;
+    document.getElementById('trip-cabin').value = trip.cabin || 'business';
+    document.getElementById('trip-seats').value = trip.seats || 1;
     document.getElementById('trip-modal').classList.remove('hidden');
     setupAutocomplete('trip-origin');
     setupAutocomplete('trip-destination');
+    setupDateRange('trip-start-date', 'trip-end-date');
 }
 
 function closeModal() {
+    closeCalendar();
     document.getElementById('trip-modal').classList.add('hidden');
 }
 
@@ -635,37 +787,46 @@ function handleTripSubmit(e) {
     const destination = document.getElementById('trip-destination').value.trim().toUpperCase();
     const startDate = document.getElementById('trip-start-date').value;
     const endDate = document.getElementById('trip-end-date').value;
+    const cabin = document.getElementById('trip-cabin').value;
+    const seats = parseInt(document.getElementById('trip-seats').value, 10);
 
     if (!origin || !destination || !startDate || !endDate) return;
 
     if (id) {
-        // Edit existing
         const trip = trips.find(t => t.id === id);
         if (trip) {
             trip.origin = origin;
             trip.destination = destination;
             trip.startDate = startDate;
             trip.endDate = endDate;
-            // Clear cache for this trip
+            trip.cabin = cabin;
+            trip.seats = seats;
             delete availabilityCache[trip.id];
         }
     } else {
-        // Create new
         const newTrip = {
             id: generateId(),
             origin,
             destination,
             startDate,
             endDate,
+            cabin,
+            seats,
             createdAt: Date.now(),
         };
         trips.push(newTrip);
     }
 
+    // Update defaults for next new trip
+    tripDefaults.cabin = cabin;
+    tripDefaults.seats = seats;
+    saveDefaults();
+
     saveTrips();
     saveCache();
     closeModal();
     renderDashboard();
+    refreshAll();
 }
 
 function deleteTrip(id) {
@@ -693,13 +854,17 @@ function openDetailModal(id) {
 
     const body = document.getElementById('detail-body');
 
-    // Edit Controls
+    const cabinLabel = getCabinLabel(trip.cabin);
+
+    // Clear header selects (no longer used there)
+    document.getElementById('detail-selects').innerHTML = '';
+
     const editControls = `
     <div class="trip-edit-controls">
       <div class="edit-row">
         <div class="edit-group">
             <label>Route</label>
-            <div class="input-merged">
+            <div class="input-merged route-compact">
                 <input type="text" id="edit-origin" class="input-uppercase" value="${escapeHtml(trip.origin)}" title="Origin">
                 <span class="arrow">→</span>
                 <input type="text" id="edit-dest" class="input-uppercase" value="${escapeHtml(trip.destination)}" title="Destination">
@@ -707,34 +872,186 @@ function openDetailModal(id) {
         </div>
         <div class="edit-group">
             <label>Dates</label>
-            <div class="input-merged dates">
-                <input type="date" id="edit-start" value="${trip.startDate}" title="Start Date">
+            <div class="input-merged dates dates-compact">
+                <div class="autocomplete-wrapper"><input type="text" id="edit-start" class="date-text-input" value="${trip.startDate}" placeholder="YYYY-MM-DD" title="Start Date" readonly></div>
                 <span class="sep">—</span>
-                <input type="date" id="edit-end" value="${trip.endDate}" title="End Date">
+                <div class="autocomplete-wrapper"><input type="text" id="edit-end" class="date-text-input" value="${trip.endDate}" placeholder="YYYY-MM-DD" title="End Date" readonly></div>
             </div>
         </div>
-        <button id="btn-update-trip" class="btn-icon-square btn-primary" title="Refresh">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-        </button>
+        <div class="edit-group">
+            <label>Cabin</label>
+            <div class="custom-select" id="cabin-select" data-value="${trip.cabin}">
+                <span class="custom-select-label" id="cabin-label">${cabinLabel}</span>
+                <svg class="custom-select-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+        </div>
+        <div class="edit-group">
+            <label>Seats</label>
+            <div class="custom-select" id="seats-select" data-value="${trip.seats}">
+                <span class="custom-select-label" id="seats-label">${trip.seats}</span>
+                <svg class="custom-select-chevron" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+        </div>
+        <input type="hidden" id="edit-cabin" value="${trip.cabin}" />
+        <input type="hidden" id="edit-seats" value="${trip.seats}" />
       </div>
     </div>
   `;
 
-    let contentHtml = '';
+    body.innerHTML = editControls + `<div id="detail-results"></div>`;
+    document.getElementById('detail-modal').classList.remove('hidden');
+
+    // Render results into the dedicated container
+    updateDetailResults(trip, cache);
+
+    // Attach Autocomplete for edit fields
+    setupAutocomplete('edit-origin');
+    setupAutocomplete('edit-dest');
+
+    // Auto-refresh helper for any parameter change
+    const autoRefresh = async () => {
+        const newOrigin = document.getElementById('edit-origin').value.trim().toUpperCase();
+        const newDest = document.getElementById('edit-dest').value.trim().toUpperCase();
+        const newStart = document.getElementById('edit-start').value;
+        const newEnd = document.getElementById('edit-end').value;
+        const newCabin = document.getElementById('edit-cabin').value;
+        const newSeats = parseInt(document.getElementById('edit-seats').value, 10);
+
+        if (!newOrigin || !newDest || !newStart || !newEnd) return;
+
+        trip.origin = newOrigin;
+        trip.destination = newDest;
+        trip.startDate = newStart;
+        trip.endDate = newEnd;
+        trip.cabin = newCabin;
+        trip.seats = newSeats;
+
+        // Update title
+        const titleEl = document.getElementById('detail-title');
+        const originName = getAirportCity(trip.origin) || trip.origin;
+        const destName = getAirportCity(trip.destination) || trip.destination;
+        titleEl.textContent = `${originName} to ${destName}`;
+
+        tripDefaults.cabin = newCabin;
+        tripDefaults.seats = newSeats;
+        saveDefaults();
+        saveTrips();
+        updateTripCard(trip.id);
+
+        // Show loading in results area, preserving current height
+        const resultsEl = document.getElementById('detail-results');
+        resultsEl.style.minHeight = resultsEl.offsetHeight + 'px';
+        resultsEl.innerHTML = `<div class="no-results"><div class="nr-icon"><span class="spinner"></span></div><p>Scanning for availability...</p></div>`;
+
+        await refreshSingleTrip(trip);
+
+        // Re-render only results, then release height lock
+        updateDetailResults(trip, availabilityCache[trip.id]);
+        resultsEl.style.minHeight = '';
+    };
+
+    // Route fields: refresh only on explicit selection (not blur)
+    ['edit-origin', 'edit-dest'].forEach(fieldId => {
+        const el = document.getElementById(fieldId);
+        let lastRefreshed = el.value;
+        el.addEventListener('change', () => {
+            const val = el.value.trim().toUpperCase();
+            if (val && val !== lastRefreshed) {
+                lastRefreshed = val;
+                autoRefresh();
+            }
+        });
+    });
+
+    // Date fields: calendar picker with auto-refresh
+    setupDateRange('edit-start', 'edit-end', autoRefresh);
+
+    // Cabin & seats dropdowns
+    setupCustomSelect('cabin-select', [
+        { value: 'economy', label: 'Economy' },
+        { value: 'premium', label: 'Premium Economy' },
+        { value: 'business', label: 'Business' },
+        { value: 'first', label: 'First' },
+    ], (val, label) => {
+        document.getElementById('edit-cabin').value = val;
+        document.getElementById('cabin-label').textContent = label;
+        autoRefresh();
+    });
+
+    setupCustomSelect('seats-select', [
+        { value: '1', label: '1' },
+        { value: '2', label: '2' },
+        { value: '3', label: '3' },
+        { value: '4', label: '4' },
+    ], (val, label) => {
+        document.getElementById('edit-seats').value = val;
+        document.getElementById('seats-label').textContent = label;
+        autoRefresh();
+    });
+}
+
+async function refreshSingleTrip(trip) {
+    delete availabilityCache[trip.id];
+    saveTrips();
+    saveCache();
+    updateTripCard(trip.id);
+
+    const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate, trip.cabin, trip.seats);
+
+    if (result && result.data && result.data.length > 0) {
+        const cabinPrefix = getCabinPrefix(trip.cabin);
+        const relevantData = result.data.filter(item => {
+            const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
+            const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
+            const sourceId = item.Source || item.source;
+            return available === true &&
+                remaining >= trip.seats &&
+                (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
+        }).map(item => ({
+            ...item,
+            MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
+            RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
+            Source: item.Source || item.source || 'Unknown',
+            Date: item.Date || item.date
+        }));
+
+        const count = relevantData.length;
+        availabilityCache[trip.id] = {
+            status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
+            data: relevantData,
+            lastFetched: Date.now(),
+        };
+    } else {
+        availabilityCache[trip.id] = {
+            status: 'unavailable',
+            data: [],
+            lastFetched: Date.now(),
+        };
+    }
+
+    saveCache();
+    updateTripCard(trip.id);
+}
+
+function updateDetailResults(trip, cache) {
+    const resultsEl = document.getElementById('detail-results');
+    if (!resultsEl) return;
+
+    let html = '';
 
     if (!cache || !cache.data) {
-        contentHtml = `
+        html = `
       <div class="no-results">
         <div class="nr-icon">🔍</div>
-        <p>No availability data yet. Hit <strong>Refresh</strong> to scan for seats.</p>
+        <p>No availability data yet. Change a parameter to scan for seats.</p>
       </div>
     `;
     } else if (cache.data.length === 0) {
-        contentHtml = `
+        html = `
       <div class="no-results">
         <div class="nr-icon">😕</div>
         <p>No award seats found for this route and date range.</p>
-        <p style="color: var(--text-muted); font-size: var(--font-sm); margin-top: 8px;">Try adjusting your dates or global settings.</p>
+        <p style="color: var(--text-muted); font-size: var(--font-sm); margin-top: 8px;">Try adjusting your dates or cabin class.</p>
       </div>
     `;
     } else {
@@ -742,7 +1059,7 @@ function openDetailModal(id) {
         const programs = [...new Set(cache.data.map(a => a.Source || a.source || 'Unknown'))];
         const minMiles = Math.min(...cache.data.map(a => a.MileageCost || a.mileage_cost || Infinity));
 
-        contentHtml = `
+        html = `
       <div class="detail-summary">
         <div class="summary-card">
           <div class="value">${totalResults}</div>
@@ -768,7 +1085,7 @@ function openDetailModal(id) {
         ${cache.data.slice(0, 50).map((a, index) => {
             const date = a.Date || '—';
             const route = `${a.Route?.OriginAirport || trip.origin} → ${a.Route?.DestinationAirport || trip.destination}`;
-            const program = String(a.Source).replace('Airlines', '').replace('Airways', ''); // Shorten name
+            const program = String(a.Source).replace('Airlines', '').replace('Airways', '');
             const miles = a.MileageCost || '—';
             const seats = a.RemainingSeats > 0 ? a.RemainingSeats : '—';
 
@@ -790,15 +1107,10 @@ function openDetailModal(id) {
     `;
     }
 
-    body.innerHTML = editControls + contentHtml;
-    document.getElementById('detail-modal').classList.remove('hidden');
+    resultsEl.innerHTML = html;
 
-    // Attach Autocomplete for edit fields
-    setupAutocomplete('edit-origin');
-    setupAutocomplete('edit-dest');
-
-    // Attach Click Listeners for links
-    body.querySelectorAll('.avail-row.clickable').forEach(row => {
+    // Attach click listeners for Qatar deep links
+    resultsEl.querySelectorAll('.avail-row.clickable').forEach(row => {
         row.addEventListener('click', () => {
             const index = row.dataset.index;
             const item = cache.data[index];
@@ -806,89 +1118,12 @@ function openDetailModal(id) {
             window.open(url, '_blank');
         });
     });
-
-    // Attach Update Listener
-    document.getElementById('btn-update-trip').addEventListener('click', () => updateTripDetails(id));
-}
-
-async function updateTripDetails(id) {
-    const trip = trips.find(t => t.id === id);
-    if (!trip) return;
-
-    const newOrigin = document.getElementById('edit-origin').value.trim().toUpperCase();
-    const newDest = document.getElementById('edit-dest').value.trim().toUpperCase();
-    const newStart = document.getElementById('edit-start').value;
-    const newEnd = document.getElementById('edit-end').value;
-
-    if (!newOrigin || !newDest || !newStart || !newEnd) {
-        alert('Please fill in all fields.');
-        return;
-    }
-
-    // Update Trip
-    trip.origin = newOrigin;
-    trip.destination = newDest;
-    trip.startDate = newStart;
-    trip.endDate = newEnd;
-
-    // Clear Cache
-    delete availabilityCache[id];
-
-    saveTrips();
-    saveCache();
-    renderDashboard(); // Update card in background
-
-    // Show loading state in modal
-    const btn = document.getElementById('btn-update-trip');
-    btn.classList.add('is-loading');
-    btn.disabled = true;
-
-    // Refresh Data
-    const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate);
-
-    // Reuse refreshAll logic for data processing is complicated here because we need to update cache manually
-    // For simplicity, we'll replicate the filter logic or just call refreshAll?
-    // Calling refreshAll scans ALL trips. We want just THIS trip.
-    // So we replicate the filter logic.
-
-    if (result && result.data && result.data.length > 0) {
-        const cabinPrefix = getCabinPrefix(settings.cabin);
-        const relevantData = result.data.filter(item => {
-            const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
-            const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
-            const sourceId = item.Source || item.source;
-            return available === true &&
-                remaining >= settings.seats &&
-                (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
-        }).map(item => ({
-            ...item,
-            MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
-            RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
-            Source: item.Source || item.source || 'Unknown',
-            Date: item.Date || item.date
-        }));
-
-        const count = relevantData.length;
-        availabilityCache[trip.id] = {
-            status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
-            data: relevantData,
-            lastFetched: Date.now(),
-        };
-    } else {
-        availabilityCache[trip.id] = {
-            status: 'unavailable',
-            data: [],
-            lastFetched: Date.now(),
-        };
-    }
-
-    saveCache();
-    renderTrips(); // Update card status
-    openDetailModal(trip.id); // Re-render modal with new data
 }
 
 function closeDetailModal() {
+    closeCalendar();
     document.getElementById('detail-modal').classList.add('hidden');
+    document.getElementById('detail-selects').innerHTML = '';
     currentDetailTripId = null;
 }
 
@@ -898,30 +1133,31 @@ async function refreshAll() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Scanning...';
 
-    for (const trip of trips) {
-        availabilityCache[trip.id] = { status: 'loading', data: null, lastFetched: null };
+    // Ensure cards exist in the DOM (no-op if already rendered)
+    const grid = document.getElementById('trips-grid');
+    if (!grid.children.length || grid.children.length !== trips.length) {
         renderTrips();
+    }
 
-        const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate);
+    for (const trip of trips) {
+        // Update only this card to "loading" state
+        availabilityCache[trip.id] = { status: 'loading', data: null, lastFetched: null };
+        updateTripCard(trip.id);
+
+        const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate, trip.cabin, trip.seats);
 
         if (result && result.data && result.data.length > 0) {
-            // Filter and map data based on selected cabin
-            const cabinPrefix = getCabinPrefix(settings.cabin);
+            const cabinPrefix = getCabinPrefix(trip.cabin);
             const relevantData = result.data.filter(item => {
                 const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
                 const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
                 const sourceId = item.Source || item.source;
 
-                // Only include if:
-                // 1. Available check passes
-                // 2. Has enough seats
-                // 3. Source is in user's selected programs
                 return available === true &&
-                    remaining >= settings.seats &&
+                    remaining >= trip.seats &&
                     (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
             }).map(item => ({
                 ...item,
-                // Normalize fields for display
                 MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
                 RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
                 Source: item.Source || item.source || 'Unknown',
@@ -949,9 +1185,9 @@ async function refreshAll() {
         }
 
         saveCache();
-        renderTrips();
+        // Update only this card with the result
+        updateTripCard(trip.id);
 
-        // Small delay between API calls to be kind to the API
         await sleep(300);
     }
 
@@ -963,6 +1199,16 @@ async function refreshAll() {
 }
 
 // ---- Utilities ----
+function getCabinLabel(cabin) {
+    switch (cabin) {
+        case 'economy': return 'Economy';
+        case 'premium': return 'Premium';
+        case 'business': return 'Business';
+        case 'first': return 'First';
+        default: return 'Business';
+    }
+}
+
 function getCabinPrefix(cabin) {
     switch (cabin) {
         case 'economy': return 'Y';
@@ -987,7 +1233,10 @@ function formatDate(dateStr) {
     if (!dateStr || dateStr === '—') return '—';
     try {
         const d = new Date(dateStr + 'T00:00:00');
-        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
     } catch {
         return dateStr;
     }
@@ -1029,7 +1278,6 @@ async function init() {
     document.getElementById('settings-btn').addEventListener('click', openSettings);
     document.getElementById('settings-close').addEventListener('click', closeSettings);
     document.getElementById('settings-overlay').addEventListener('click', closeSettings);
-    document.getElementById('settings-save').addEventListener('click', saveSettingsForm);
 
     // API Key (inside settings)
     document.getElementById('key-save-btn').addEventListener('click', handleKeySave);
