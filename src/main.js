@@ -45,6 +45,7 @@ let settings = {
     programs: ['united', 'aeroplan', 'americanAirlines'],
 };
 let availabilityCache = {}; // tripId -> { status, data, lastFetched }
+let currentDetailTripId = null;
 let userApiKey = localStorage.getItem('seats_aero_api_key') || '';
 let apiVerified = false;
 
@@ -218,6 +219,11 @@ function updateSelectedIndex(newIndex) {
     items[nextIndex].classList.add('active');
     items[nextIndex].scrollIntoView({ block: 'nearest' });
     activeAutocomplete.selectedIndex = nextIndex;
+}
+
+function getAirportCity(iata) {
+    const airport = AIRPORTS.find(a => a.iata === iata);
+    return airport ? airport.city : null;
 }
 
 function selectAirport(input, code) {
@@ -460,17 +466,6 @@ function renderTrips() {
 
         return `
       <div class="trip-card" data-id="${trip.id}" style="animation-delay: ${index * 0.05}s">
-        <div class="card-top">
-          <div class="card-name">${escapeHtml(trip.name)}</div>
-          <div class="card-actions">
-            <button class="card-action-btn edit-btn" data-id="${trip.id}" title="Edit">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button class="card-action-btn delete" data-id="${trip.id}" title="Delete">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            </button>
-          </div>
-        </div>
         <div class="card-route">
           <span class="airport-code">${escapeHtml(trip.origin)}</span>
           <div class="route-line">
@@ -492,26 +487,10 @@ function renderTrips() {
     `;
     }).join('');
 
-    // Attach event listeners
+    // Attach event listeners — card click opens detail
     grid.querySelectorAll('.trip-card').forEach(card => {
-        card.addEventListener('click', (e) => {
-            if (e.target.closest('.card-action-btn')) return;
-            const id = card.dataset.id;
-            openDetailModal(id);
-        });
-    });
-
-    grid.querySelectorAll('.edit-btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            openEditModal(btn.dataset.id);
-        });
-    });
-
-    grid.querySelectorAll('.delete').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            deleteTrip(btn.dataset.id);
+        card.addEventListener('click', () => {
+            openDetailModal(card.dataset.id);
         });
     });
 }
@@ -616,7 +595,7 @@ function saveSettingsForm() {
 
 // ---- Trip Modal ----
 function openAddModal() {
-    document.getElementById('modal-title').textContent = 'New Trip Idea';
+    document.getElementById('modal-title').textContent = 'New Trip';
     document.getElementById('trip-form').reset();
     document.getElementById('trip-id').value = '';
     // Set default dates to next month
@@ -634,14 +613,15 @@ function openAddModal() {
 function openEditModal(id) {
     const trip = trips.find(t => t.id === id);
     if (!trip) return;
-    document.getElementById('modal-title').textContent = 'Edit Trip Idea';
+    document.getElementById('modal-title').textContent = 'Edit Trip';
     document.getElementById('trip-id').value = trip.id;
-    document.getElementById('trip-name').value = trip.name;
     document.getElementById('trip-origin').value = trip.origin;
     document.getElementById('trip-destination').value = trip.destination;
     document.getElementById('trip-start-date').value = trip.startDate;
     document.getElementById('trip-end-date').value = trip.endDate;
     document.getElementById('trip-modal').classList.remove('hidden');
+    setupAutocomplete('trip-origin');
+    setupAutocomplete('trip-destination');
 }
 
 function closeModal() {
@@ -651,19 +631,17 @@ function closeModal() {
 function handleTripSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('trip-id').value;
-    const name = document.getElementById('trip-name').value.trim();
     const origin = document.getElementById('trip-origin').value.trim().toUpperCase();
     const destination = document.getElementById('trip-destination').value.trim().toUpperCase();
     const startDate = document.getElementById('trip-start-date').value;
     const endDate = document.getElementById('trip-end-date').value;
 
-    if (!name || !origin || !destination || !startDate || !endDate) return;
+    if (!origin || !destination || !startDate || !endDate) return;
 
     if (id) {
         // Edit existing
         const trip = trips.find(t => t.id === id);
         if (trip) {
-            trip.name = name;
             trip.origin = origin;
             trip.destination = destination;
             trip.startDate = startDate;
@@ -675,7 +653,6 @@ function handleTripSubmit(e) {
         // Create new
         const newTrip = {
             id: generateId(),
-            name,
             origin,
             destination,
             startDate,
@@ -705,11 +682,14 @@ function openDetailModal(id) {
     const trip = trips.find(t => t.id === id);
     if (!trip) return;
 
+    currentDetailTripId = id;
     const cache = availabilityCache[trip.id];
 
-    // Title as Editable Input
+    // Title shows city names (fallback to IATA codes)
     const titleEl = document.getElementById('detail-title');
-    titleEl.innerHTML = `<input type="text" id="edit-trip-name" value="${escapeHtml(trip.name)}" class="title-input">`;
+    const originName = getAirportCity(trip.origin) || trip.origin;
+    const destName = getAirportCity(trip.destination) || trip.destination;
+    titleEl.textContent = `${originName} to ${destName}`;
 
     const body = document.getElementById('detail-body');
 
@@ -835,19 +815,17 @@ async function updateTripDetails(id) {
     const trip = trips.find(t => t.id === id);
     if (!trip) return;
 
-    const newName = document.getElementById('edit-trip-name').value.trim();
     const newOrigin = document.getElementById('edit-origin').value.trim().toUpperCase();
     const newDest = document.getElementById('edit-dest').value.trim().toUpperCase();
     const newStart = document.getElementById('edit-start').value;
     const newEnd = document.getElementById('edit-end').value;
 
-    if (!newName || !newOrigin || !newDest || !newStart || !newEnd) {
+    if (!newOrigin || !newDest || !newStart || !newEnd) {
         alert('Please fill in all fields.');
         return;
     }
 
     // Update Trip
-    trip.name = newName;
     trip.origin = newOrigin;
     trip.destination = newDest;
     trip.startDate = newStart;
@@ -911,6 +889,7 @@ async function updateTripDetails(id) {
 
 function closeDetailModal() {
     document.getElementById('detail-modal').classList.add('hidden');
+    currentDetailTripId = null;
 }
 
 // ---- Availability Refresh ----
@@ -1066,6 +1045,12 @@ async function init() {
     // Detail Modal
     document.getElementById('detail-close').addEventListener('click', closeDetailModal);
     document.getElementById('detail-overlay').addEventListener('click', closeDetailModal);
+    document.getElementById('detail-delete').addEventListener('click', () => {
+        if (currentDetailTripId) {
+            deleteTrip(currentDetailTripId);
+            closeDetailModal();
+        }
+    });
 
     // Refresh
     document.getElementById('refresh-all-btn').addEventListener('click', refreshAll);

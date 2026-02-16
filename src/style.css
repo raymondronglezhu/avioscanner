@@ -413,52 +413,24 @@ body::before {
   }
 }
 
-.card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: var(--space-md);
-}
-
-.card-name {
-  font-size: var(--font-md);
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.card-actions {
-  display: flex;
-  gap: var(--space-xs);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.trip-card:hover .card-actions {
-  opacity: 1;
-}
-
-.card-action-btn {
+/* Detail modal header actions (delete + close) */
+.modal-header-actions {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
+  gap: var(--space-xs);
+}
+
+.btn-icon-danger {
+  color: var(--text-muted);
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.btn-icon-danger:hover {
+  color: var(--danger);
+  background: var(--danger-bg);
   color: var(--text-muted);
   cursor: pointer;
   transition: all var(--transition-fast);
-}
-
-.card-action-btn:hover {
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-}
-
-.card-action-btn.delete:hover {
-  background: var(--danger-bg);
-  color: var(--danger);
 }
 
 /* Route display */
