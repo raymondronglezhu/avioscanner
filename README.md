@@ -1,8 +1,8 @@
-# ✈️ Aeroscan
+# ✈️ Avioscanner
 
-**Aeroscan** is a premium mileage award availability tracker. It allows you to monitor flight "Trip Ideas" across multiple airline mileage programs simultaneously, helping you find the absolute best deals for your next adventure.
+**Avioscanner** is a premium mileage award availability tracker. It allows you to monitor flight "Trip Ideas" across multiple airline mileage programs simultaneously, helping you find the absolute best deals for your next adventure.
 
-Built for efficiency and elegance, Aeroscan leverages the [Seats.aero](https://seats.aero) Partner API to provide real-time status and mileage costs directly on your dashboard.
+Built for efficiency and elegance, Avioscanner leverages the [Seats.aero](https://seats.aero) Partner API to provide real-time status and mileage costs directly on your dashboard.
 
 ---
 

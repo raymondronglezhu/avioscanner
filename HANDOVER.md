@@ -1,9 +1,9 @@
-# Aeroscan — Project Handover & Overview
+# Avioscanner — Project Handover & Overview
 
-This document provides a high-level context for continuing the development of **Aeroscan** within Cursor. It summarizes the architecture, core logic, and recent enhancements so you can pick up the work immediately without a line-by-line audit.
+This document provides a high-level context for continuing the development of **Avioscanner** within Cursor. It summarizes the architecture, core logic, and recent enhancements so you can pick up the work immediately without a line-by-line audit.
 
 ## 🚀 Project Overview
-**Aeroscan** is a specialized flight search dashboard designed to track award availability using the **Seats.aero Partner API**. Users manage "Trip Ideas" and the dashboard scans for the best mileage deals across multiple airline programs.
+**Avioscanner** is a specialized flight search dashboard designed to track award availability using the **Seats.aero Partner API**. Users manage "Trip Ideas" and the dashboard scans for the best mileage deals across multiple airline programs.
 
 ## 🏗️ Technical Architecture
 

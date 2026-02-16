@@ -1,5 +1,5 @@
 {
-  "name": "aeroscan",
+  "name": "avioscanner",
   "version": "1.0.0",
   "description": "Award flight dashboard powered by seats.aero",
   "type": "module",

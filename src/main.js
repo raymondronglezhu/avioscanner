@@ -1,5 +1,5 @@
 /* =============================================
-   AEROSCAN — Main Application Logic
+   AVIOSCANNER — Main Application Logic
    ============================================= */
 
 // ---- Mileage Programs Reference ----
@@ -52,9 +52,12 @@ let apiVerified = false;
 let AIRPORTS = [];
 
 async function loadAirports() {
+    if (!userApiKey) {
+        console.warn('Skipping airport load: No API key set.');
+        return;
+    }
     try {
-        const headers = {};
-        if (userApiKey) headers['x-api-key'] = userApiKey;
+        const headers = { 'x-api-key': userApiKey };
         const res = await fetch('/api/airports', { headers });
         if (!res.ok) throw new Error('Failed to fetch');
         AIRPORTS = await res.json();
@@ -233,10 +236,10 @@ function closeAutocomplete() {
 // ---- Persistence ----
 function loadState() {
     try {
-        const savedTrips = localStorage.getItem('aeroscan_trips');
+        const savedTrips = localStorage.getItem('avioscanner_trips');
         if (savedTrips) trips = JSON.parse(savedTrips);
 
-        const savedSettings = localStorage.getItem('aeroscan_settings');
+        const savedSettings = localStorage.getItem('avioscanner_settings');
         if (savedSettings) {
             settings = JSON.parse(savedSettings);
 
@@ -259,7 +262,7 @@ function loadState() {
             saveSettings();
         }
 
-        const savedCache = localStorage.getItem('aeroscan_cache');
+        const savedCache = localStorage.getItem('avioscanner_cache');
         if (savedCache) availabilityCache = JSON.parse(savedCache);
     } catch (e) {
         console.warn('Failed to load state:', e);
@@ -267,15 +270,15 @@ function loadState() {
 }
 
 function saveTrips() {
-    localStorage.setItem('aeroscan_trips', JSON.stringify(trips));
+    localStorage.setItem('avioscanner_trips', JSON.stringify(trips));
 }
 
 function saveSettings() {
-    localStorage.setItem('aeroscan_settings', JSON.stringify(settings));
+    localStorage.setItem('avioscanner_settings', JSON.stringify(settings));
 }
 
 function saveCache() {
-    localStorage.setItem('aeroscan_cache', JSON.stringify(availabilityCache));
+    localStorage.setItem('avioscanner_cache', JSON.stringify(availabilityCache));
 }
 
 // ---- API Helpers ----
@@ -317,11 +320,11 @@ function generateQatarLink(item, cabin, tripOrigin, tripDest) {
 }
 
 async function checkHealth(keyOverride = null) {
+    const key = keyOverride || userApiKey;
+    if (!key) return false;
+
     try {
-        const headers = {};
-        if (keyOverride || userApiKey) {
-            headers['x-api-key'] = keyOverride || userApiKey;
-        }
+        const headers = { 'x-api-key': key };
         const res = await fetch('/api/health', { headers });
         const data = await res.json();
         return data.status === 'ok' && data.hasApiKey === true;
@@ -342,6 +345,10 @@ async function searchAvailability(origin, destination, startDate, endDate) {
 
     const headers = {};
     if (userApiKey) headers['x-api-key'] = userApiKey;
+    else {
+        // No key? Don't even try.
+        return null;
+    }
 
     try {
         let results = [];
@@ -1022,8 +1029,18 @@ function sleep(ms) {
 
 // ---- Init ----
 async function init() {
-    await loadAirports();
-    loadState();
+    loadState(); // Load settings first to get API Key
+    userApiKey = localStorage.getItem('seats_aero_api_key') || ''; // Reload to be sure
+
+    if (!userApiKey) {
+        setTimeout(() => {
+            alert('Welcome to Avioscanner! Please enter your Seats.aero API Key in Settings to get started.');
+            openSettings();
+        }, 500);
+    } else {
+        await loadAirports();
+    }
+
     renderDashboard();
     updateApiStatus();
 
@@ -1088,15 +1105,9 @@ async function updateApiStatus() {
             apiVerified = false;
         }
     } else {
-        if (healthy) {
-            statusDot.classList.add('connected');
-            statusText.textContent = 'Verified (Server)';
-            apiVerified = true;
-        } else {
-            statusDot.classList.add('warning');
-            statusText.textContent = 'No Key Provided';
-            apiVerified = false;
-        }
+        statusDot.classList.add('warning');
+        statusText.textContent = 'Key Required';
+        apiVerified = false;
     }
 }
 

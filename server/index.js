@@ -9,7 +9,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.SEATS_AERO_API_KEY;
+
 const BASE_URL = 'https://seats.aero/partnerapi';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -29,9 +29,14 @@ try {
     console.error('❌ Failed to load airports:', error);
 }
 
-// Helper: Get API Key (Header override or ENV fallback)
-function getApiKey(req) {
-    return req.headers['x-api-key'] || API_KEY;
+// Helper: Get API Key (from frontend settings only)
+function getApiKey(req, res) {
+    const key = req.headers['x-api-key'];
+    if (!key) {
+        res.status(401).json({ error: 'No API key provided. Set your key in Settings.' });
+        return null;
+    }
+    return key;
 }
 
 app.use(cors());
@@ -39,7 +44,7 @@ app.use(express.json());
 
 // Health check
 app.get('/api/health', (req, res) => {
-    const key = getApiKey(req);
+    const key = req.headers['x-api-key'];
     res.json({ status: 'ok', hasApiKey: !!key });
 });
 
@@ -52,7 +57,8 @@ app.get('/api/search', async (req, res) => {
         console.log(`🔍 [Search Request] ${apiUrl}`);
         console.log(`   Params:`, req.query);
 
-        const key = getApiKey(req);
+        const key = getApiKey(req, res);
+        if (!key) return;
         const response = await fetch(apiUrl, {
             headers: { 'Partner-Authorization': key },
         });
@@ -84,7 +90,8 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/availability', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
-        const key = getApiKey(req);
+        const key = getApiKey(req, res);
+        if (!key) return;
         const response = await fetch(`${BASE_URL}/availability?${params.toString()}`, {
             headers: { 'Partner-Authorization': key },
         });
@@ -99,7 +106,8 @@ app.get('/api/availability', async (req, res) => {
 // Proxy: Get Trips
 app.get('/api/trips/:id', async (req, res) => {
     try {
-        const key = getApiKey(req);
+        const key = getApiKey(req, res);
+        if (!key) return;
         const response = await fetch(`${BASE_URL}/trips/${req.params.id}`, {
             headers: { 'Partner-Authorization': key },
         });
@@ -115,7 +123,8 @@ app.get('/api/trips/:id', async (req, res) => {
 app.get('/api/routes', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
-        const key = getApiKey(req);
+        const key = getApiKey(req, res);
+        if (!key) return;
         const response = await fetch(`${BASE_URL}/routes?${params.toString()}`, {
             headers: { 'Partner-Authorization': key },
         });
@@ -133,6 +142,6 @@ app.get('/api/airports', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`✈️  Aeroscan API proxy running on http://localhost:${PORT}`);
-    console.log(`   API Key: ${API_KEY ? '✅ loaded' : '❌ missing — check .env'}`);
+    console.log(`✈️  Avioscanner API proxy running on http://localhost:${PORT}`);
+    console.log(`   API Key: managed via frontend Settings panel`);
 });
