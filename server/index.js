@@ -510,6 +510,17 @@ app.get('/api/airports', (req, res) => {
     res.json(AIRPORTS_DATA);
 });
 
+// Serve built frontend in production (Render).
+const distPath = path.join(__dirname, '..', 'dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get(/.*/, (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+} else {
+    console.warn(`⚠️  Frontend dist not found at ${distPath}. Run "npm run build" before starting in production.`);
+}
+
 app.listen(PORT, () => {
     console.log(`✈️  Avioscanner API proxy running on http://localhost:${PORT}`);
     console.log(`   API Key: managed via frontend Settings panel`);
