@@ -33,3 +33,6 @@ coverage/
 # Temporary files
 tmp/
 temp/
+
+# Local profile sync store
+server/data/profile-trips.json

@@ -29,7 +29,10 @@ const __dirname = path.dirname(__filename);
 
 // Load airports into memory
 const airportsPath = path.join(__dirname, 'data', 'airports.json');
+const profileTripsPath = path.join(__dirname, 'data', 'profile-trips.json');
+const MAX_PROFILE_TRIPS = 100;
 let AIRPORTS_DATA = [];
+let PROFILE_TRIPS_STORE = { owners: {} };
 try {
     if (fs.existsSync(airportsPath)) {
         AIRPORTS_DATA = JSON.parse(fs.readFileSync(airportsPath, 'utf8'));
@@ -40,6 +43,148 @@ try {
 } catch (error) {
     console.error('❌ Failed to load airports:', error);
 }
+
+function loadProfileTripsStore() {
+    try {
+        const dataDir = path.dirname(profileTripsPath);
+        if (!fs.existsSync(dataDir)) {
+            fs.mkdirSync(dataDir, { recursive: true });
+        }
+        if (!fs.existsSync(profileTripsPath)) {
+            PROFILE_TRIPS_STORE = { owners: {} };
+            return;
+        }
+
+        const raw = fs.readFileSync(profileTripsPath, 'utf8');
+        const parsed = JSON.parse(raw);
+        PROFILE_TRIPS_STORE = parsed && typeof parsed === 'object'
+            ? { owners: parsed.owners || {} }
+            : { owners: {} };
+    } catch (error) {
+        console.error('❌ Failed to load profile trips store:', error);
+        PROFILE_TRIPS_STORE = { owners: {} };
+    }
+}
+
+function persistProfileTripsStore() {
+    try {
+        fs.writeFileSync(profileTripsPath, JSON.stringify(PROFILE_TRIPS_STORE, null, 2), 'utf8');
+    } catch (error) {
+        console.error('❌ Failed to persist profile trips store:', error);
+        throw error;
+    }
+}
+
+function normalizeTripIdea(input) {
+    if (!input || typeof input !== 'object') return null;
+    const origin = String(input.origin || '').trim().toUpperCase();
+    const destination = String(input.destination || '').trim().toUpperCase();
+    const startDate = String(input.startDate || '').trim();
+    const endDate = String(input.endDate || '').trim();
+    const cabin = String(input.cabin || '').trim().toLowerCase();
+    const seats = Number(input.seats);
+    const id = String(input.id || '').trim();
+
+    const allowedCabins = new Set(['economy', 'premium', 'business', 'first']);
+    if (!id || !origin || !destination || !startDate || !endDate || !allowedCabins.has(cabin)) {
+        return null;
+    }
+    if (!Number.isInteger(seats) || seats < 1 || seats > 9) {
+        return null;
+    }
+
+    return {
+        id,
+        origin,
+        destination,
+        startDate,
+        endDate,
+        cabin,
+        seats,
+        createdAt: Number(input.createdAt) || Date.now(),
+    };
+}
+
+function normalizeTripDefaults(input) {
+    if (!input || typeof input !== 'object') return null;
+    const cabin = String(input.cabin || '').trim().toLowerCase();
+    const seats = Number(input.seats);
+    const allowedCabins = new Set(['economy', 'premium', 'business', 'first']);
+    if (!allowedCabins.has(cabin)) return null;
+    if (!Number.isInteger(seats) || seats < 1 || seats > 9) return null;
+    return { cabin, seats };
+}
+
+async function resolveProfileOwner(req, res, { silent = false } = {}) {
+    const apiKeyHeader = req.headers['x-api-key'];
+    const authHeader = req.headers.authorization || '';
+    const hasApiKey = Boolean(apiKeyHeader);
+    const hasBearer = authHeader.startsWith('Bearer ');
+
+    if (hasApiKey && hasBearer) {
+        if (silent) return null;
+        res.status(400).json({
+            error: 'Provide exactly one auth mode: API key or OAuth bearer token.',
+        });
+        return null;
+    }
+
+    if (!hasApiKey && !hasBearer) {
+        if (silent) return null;
+        res.status(401).json({ error: 'No credentials provided.' });
+        return null;
+    }
+
+    if (hasApiKey) {
+        const apiKeyHash = crypto.createHash('sha256').update(String(apiKeyHeader)).digest('hex');
+        return {
+            ownerId: `api_key:${apiKeyHash}`,
+            identityType: 'api_key',
+            displayName: `API key ${apiKeyHash.slice(0, 8)}`,
+        };
+    }
+
+    const token = authHeader.slice('Bearer '.length).trim();
+    if (!token) {
+        if (silent) return null;
+        res.status(401).json({ error: 'Invalid OAuth token.' });
+        return null;
+    }
+
+    try {
+        const userResponse = await fetch(`${OAUTH_API_URL}/userinfo`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!userResponse.ok) {
+            if (silent) return null;
+            res.status(401).json({ error: 'Unable to resolve OAuth user identity.' });
+            return null;
+        }
+
+        const user = await userResponse.json();
+        const subject = user?.sub || user?.id || user?.email;
+        if (!subject) {
+            if (silent) return null;
+            res.status(401).json({ error: 'OAuth userinfo missing subject.' });
+            return null;
+        }
+
+        const subjectHash = crypto.createHash('sha256').update(String(subject)).digest('hex');
+        return {
+            ownerId: `oauth:${subjectHash}`,
+            identityType: 'oauth',
+            displayName: user?.email || user?.name || 'OAuth user',
+        };
+    } catch (error) {
+        console.error('Failed to resolve OAuth user identity:', error);
+        if (silent) return null;
+        res.status(500).json({ error: 'Failed to resolve OAuth identity.' });
+        return null;
+    }
+}
+
+loadProfileTripsStore();
 
 // Helper: Build upstream Seats auth headers from frontend credentials.
 // API key -> Partner-Authorization
@@ -502,6 +647,59 @@ app.get('/api/routes', async (req, res) => {
     } catch (error) {
         console.error('Routes error:', error);
         res.status(500).json({ error: 'Failed to fetch routes' });
+    }
+});
+
+// Profile sync: load saved trip ideas for current identity.
+app.get('/api/profile/trips', async (req, res) => {
+    const owner = await resolveProfileOwner(req, res);
+    if (!owner) return;
+
+    const record = PROFILE_TRIPS_STORE.owners[owner.ownerId] || {
+        trips: [],
+        tripDefaults: null,
+        updatedAt: 0,
+    };
+
+    res.json({
+        ownerId: owner.ownerId,
+        identityType: owner.identityType,
+        displayName: owner.displayName,
+        trips: Array.isArray(record.trips) ? record.trips : [],
+        tripDefaults: record.tripDefaults || null,
+        updatedAt: Number(record.updatedAt) || 0,
+    });
+});
+
+// Profile sync: replace saved trip ideas for current identity.
+app.put('/api/profile/trips', async (req, res) => {
+    const owner = await resolveProfileOwner(req, res);
+    if (!owner) return;
+
+    const rawTrips = Array.isArray(req.body?.trips) ? req.body.trips : [];
+    const normalizedTrips = rawTrips
+        .map(normalizeTripIdea)
+        .filter(Boolean)
+        .slice(0, MAX_PROFILE_TRIPS);
+    const tripDefaults = normalizeTripDefaults(req.body?.tripDefaults) || null;
+    const updatedAt = Date.now();
+
+    PROFILE_TRIPS_STORE.owners[owner.ownerId] = {
+        trips: normalizedTrips,
+        tripDefaults,
+        updatedAt,
+    };
+
+    try {
+        persistProfileTripsStore();
+        res.json({
+            success: true,
+            ownerId: owner.ownerId,
+            updatedAt,
+            tripCount: normalizedTrips.length,
+        });
+    } catch {
+        res.status(500).json({ error: 'Failed to persist profile trips.' });
     }
 });
 

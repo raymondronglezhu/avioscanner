@@ -8,6 +8,9 @@ const AVIOS_PROGRAMS = ['finnair', 'qatar'];
 const OAUTH_STORAGE_KEY = 'seats_aero_oauth_session';
 const OAUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const AUTH_METHOD_STORAGE_KEY = 'seats_aero_auth_method';
+const TRIPS_UPDATED_AT_STORAGE_KEY = 'avioscanner_trips_updated_at';
+const SYNC_OWNER_ID_STORAGE_KEY = 'avioscanner_sync_owner_id';
+const REMOTE_SYNC_DEBOUNCE_MS = 1200;
 const AUTH_METHODS = {
     API_KEY: 'api_key',
     OAUTH: 'oauth',
@@ -29,6 +32,11 @@ let apiVerified = localStorage.getItem('seats_aero_api_verified') === userApiKey
 let oauthSession = loadOAuthSession();
 let authMethod = loadAuthMethod();
 let oauthConnectButtonController = null;
+let tripsUpdatedAt = Number(localStorage.getItem(TRIPS_UPDATED_AT_STORAGE_KEY) || 0);
+let syncOwnerId = localStorage.getItem(SYNC_OWNER_ID_STORAGE_KEY) || '';
+let remoteSyncTimer = null;
+let remoteSyncInitialized = false;
+let remoteSyncInFlight = false;
 
 if (!userApiKey && oauthSession?.token?.accessToken && authMethod !== AUTH_METHODS.API_KEY) {
     userApiKey = oauthSession.token.accessToken;
@@ -496,13 +504,29 @@ function loadState() {
 
         const savedCache = localStorage.getItem('avioscanner_cache');
         if (savedCache) availabilityCache = JSON.parse(savedCache);
+
+        const savedTripsUpdatedAt = Number(localStorage.getItem(TRIPS_UPDATED_AT_STORAGE_KEY) || 0);
+        tripsUpdatedAt = Number.isFinite(savedTripsUpdatedAt) ? savedTripsUpdatedAt : 0;
+        syncOwnerId = localStorage.getItem(SYNC_OWNER_ID_STORAGE_KEY) || '';
     } catch (e) {
         console.warn('Failed to load state:', e);
     }
 }
 
-function saveTrips() {
+function saveTrips(options = {}) {
+    const { touch = true, updatedAt = null, sync = true } = options;
     localStorage.setItem('avioscanner_trips', JSON.stringify(trips));
+
+    if (updatedAt !== null && Number.isFinite(Number(updatedAt))) {
+        tripsUpdatedAt = Number(updatedAt);
+    } else if (touch) {
+        tripsUpdatedAt = Date.now();
+    }
+    localStorage.setItem(TRIPS_UPDATED_AT_STORAGE_KEY, String(tripsUpdatedAt));
+
+    if (sync) {
+        scheduleRemoteTripsSync();
+    }
 }
 
 function saveDefaults() {
@@ -511,6 +535,156 @@ function saveDefaults() {
 
 function saveCache() {
     localStorage.setItem('avioscanner_cache', JSON.stringify(availabilityCache));
+}
+
+function setSyncOwner(ownerId) {
+    syncOwnerId = ownerId || '';
+    if (syncOwnerId) {
+        localStorage.setItem(SYNC_OWNER_ID_STORAGE_KEY, syncOwnerId);
+    } else {
+        localStorage.removeItem(SYNC_OWNER_ID_STORAGE_KEY);
+    }
+}
+
+function applyRemoteProfileState(profile) {
+    const remoteTrips = Array.isArray(profile?.trips) ? profile.trips : [];
+    const remoteDefaults = profile?.tripDefaults;
+    const remoteUpdatedAt = Number(profile?.updatedAt || 0);
+
+    trips = remoteTrips;
+    availabilityCache = {};
+
+    if (remoteDefaults && typeof remoteDefaults === 'object') {
+        if (remoteDefaults.cabin) tripDefaults.cabin = remoteDefaults.cabin;
+        if (remoteDefaults.seats) tripDefaults.seats = Number(remoteDefaults.seats) || tripDefaults.seats;
+        saveDefaults();
+    }
+
+    saveTrips({ touch: false, updatedAt: remoteUpdatedAt || Date.now(), sync: false });
+    saveCache();
+    renderDashboard();
+}
+
+async function fetchRemoteProfileTrips() {
+    const headers = buildAuthHeaders();
+    if (!Object.keys(headers).length) return null;
+
+    const response = await fetch('/api/profile/trips', { headers });
+    if (!response.ok) {
+        throw new Error(`Profile load failed (${response.status})`);
+    }
+    return response.json();
+}
+
+async function pushTripsToRemote() {
+    const headers = buildAuthHeaders();
+    if (!Object.keys(headers).length) return;
+
+    const response = await fetch('/api/profile/trips', {
+        method: 'PUT',
+        headers: {
+            ...headers,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            trips,
+            tripDefaults,
+            updatedAt: tripsUpdatedAt,
+        }),
+    });
+
+    if (!response.ok) {
+        throw new Error(`Profile save failed (${response.status})`);
+    }
+
+    const payload = await response.json();
+    if (payload?.ownerId) {
+        setSyncOwner(payload.ownerId);
+    }
+    if (Number.isFinite(Number(payload?.updatedAt))) {
+        tripsUpdatedAt = Number(payload.updatedAt);
+        localStorage.setItem(TRIPS_UPDATED_AT_STORAGE_KEY, String(tripsUpdatedAt));
+    }
+}
+
+async function syncTripsNow() {
+    if (!remoteSyncInitialized || remoteSyncInFlight) return;
+
+    const headers = buildAuthHeaders();
+    if (!Object.keys(headers).length) return;
+
+    remoteSyncInFlight = true;
+    try {
+        await pushTripsToRemote();
+    } catch (error) {
+        console.warn('Remote trip sync failed:', error);
+    } finally {
+        remoteSyncInFlight = false;
+    }
+}
+
+function scheduleRemoteTripsSync() {
+    if (!remoteSyncInitialized) return;
+    if (remoteSyncTimer) clearTimeout(remoteSyncTimer);
+    remoteSyncTimer = setTimeout(() => {
+        syncTripsNow();
+    }, REMOTE_SYNC_DEBOUNCE_MS);
+}
+
+async function initializeRemoteTripSync() {
+    const headers = buildAuthHeaders();
+    if (!Object.keys(headers).length) {
+        remoteSyncInitialized = false;
+        return;
+    }
+
+    try {
+        const profile = await fetchRemoteProfileTrips();
+        if (!profile) return;
+
+        const remoteOwnerId = profile.ownerId || '';
+        const remoteTrips = Array.isArray(profile.trips) ? profile.trips : [];
+        const remoteUpdatedAt = Number(profile.updatedAt || 0);
+        const hasLocalTrips = Array.isArray(trips) && trips.length > 0;
+        const hasRemoteTrips = remoteTrips.length > 0;
+        const ownerChanged = Boolean(syncOwnerId && remoteOwnerId && syncOwnerId !== remoteOwnerId);
+
+        if (remoteOwnerId) {
+            setSyncOwner(remoteOwnerId);
+        }
+
+        if (ownerChanged) {
+            // Prevent leaking one account's local state into another account.
+            applyRemoteProfileState(profile);
+            remoteSyncInitialized = true;
+            return;
+        }
+
+        if (!hasLocalTrips && hasRemoteTrips) {
+            applyRemoteProfileState(profile);
+            remoteSyncInitialized = true;
+            return;
+        }
+
+        if (hasLocalTrips && !hasRemoteTrips) {
+            remoteSyncInitialized = true;
+            await pushTripsToRemote();
+            return;
+        }
+
+        if (hasLocalTrips && hasRemoteTrips) {
+            if (remoteUpdatedAt > tripsUpdatedAt) {
+                applyRemoteProfileState(profile);
+            } else if (tripsUpdatedAt > remoteUpdatedAt) {
+                await pushTripsToRemote();
+            }
+        }
+
+        remoteSyncInitialized = true;
+    } catch (error) {
+        console.warn('Remote trip sync bootstrap failed:', error);
+        remoteSyncInitialized = false;
+    }
 }
 
 // ---- API Helpers ----
@@ -1475,6 +1649,7 @@ async function init() {
         }, 350);
     } else {
         await loadAirports();
+        await initializeRemoteTripSync();
     }
 
     // Trip Modal
@@ -1637,7 +1812,9 @@ async function handleKeySave() {
         setAuthMethod(AUTH_METHODS.API_KEY);
         setApiStatus('connected', 'Connected');
         dismissToast();
-        loadAirports();
+        await loadAirports();
+        await initializeRemoteTripSync();
+        renderDashboard();
     } else {
         apiVerified = false;
         localStorage.removeItem('seats_aero_api_verified');
@@ -1803,7 +1980,7 @@ async function handleOAuthMessage(event) {
         return;
     }
 
-    applyOAuthResult(payload);
+    await applyOAuthResult(payload);
 }
 
 async function hydrateOAuthResultFromUrl() {
@@ -1813,7 +1990,7 @@ async function hydrateOAuthResultFromUrl() {
 
     const payload = await consumeOAuthResult(resultId);
     if (payload) {
-        applyOAuthResult(payload);
+        await applyOAuthResult(payload);
     } else {
         setOAuthStatus('error', 'Result expired');
     }
@@ -1832,7 +2009,7 @@ async function consumeOAuthResult(resultId) {
     }
 }
 
-function applyOAuthResult(data) {
+async function applyOAuthResult(data) {
     if (!data.success) {
         const err = (data.error || '').toLowerCase();
         setOAuthStatus('error', err.includes('denied') ? 'Access denied' : 'Connect failed');
@@ -1859,6 +2036,9 @@ function applyOAuthResult(data) {
     setApiStatus('connected', 'Connected');
     dismissToast();
     updateOAuthStatusUi();
-    loadAirports();
-    refreshAll();
+    await loadAirports();
+    await initializeRemoteTripSync();
+    if (trips.length > 0) {
+        refreshAll();
+    }
 }
