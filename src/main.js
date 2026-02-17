@@ -44,7 +44,7 @@ async function loadAirports() {
         return;
     }
     try {
-        const headers = { 'x-api-key': userApiKey };
+        const headers = buildAuthHeaders();
         const res = await fetch('/api/airports', { headers });
         if (!res.ok) throw new Error('Failed to fetch');
         AIRPORTS = await res.json();
@@ -551,6 +551,31 @@ function generateQatarLink(item, cabin, tripOrigin, tripDest) {
     return `${baseUrl}?${params.toString()}`;
 }
 
+function generateFinnairLink(item, cabin, tripOrigin, tripDest) {
+    const baseUrl = 'https://www.finnair.com/us-en/booking/flight-selection';
+
+    const from = item.Route?.OriginAirport || tripOrigin || '';
+    const to = item.Route?.DestinationAirport || tripDest || '';
+
+    const payload = {
+        flights: [
+            {
+                origin: from,
+                destination: to,
+                departureDate: item.Date || '',
+            },
+        ],
+        cabin: 'MIXED',
+        adults: 1,
+        c15s: 0,
+        children: 0,
+        infants: 0,
+        isAward: true,
+    };
+
+    return `${baseUrl}?json=${encodeURIComponent(JSON.stringify(payload))}`;
+}
+
 async function checkHealth(keyOverride = null) {
     const key = keyOverride || userApiKey;
     if (!key) return false;
@@ -558,7 +583,9 @@ async function checkHealth(keyOverride = null) {
     try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 5000);
-        const headers = { 'x-api-key': key };
+        const headers = keyOverride
+            ? { 'x-api-key': keyOverride }
+            : buildAuthHeaders();
         const res = await fetch('/api/health', { headers, signal: controller.signal });
         clearTimeout(timeout);
         const data = await res.json();
@@ -578,10 +605,9 @@ async function searchAvailability(origin, destination, startDate, endDate, cabin
         seats: seats,
     };
 
-    const headers = {};
-    if (userApiKey) headers['x-api-key'] = userApiKey;
-    else {
-        // No key? Don't even try.
+    const headers = buildAuthHeaders();
+    if (!Object.keys(headers).length) {
+        // No credentials? Don't even try.
         return null;
     }
 
@@ -628,6 +654,14 @@ async function searchAvailability(origin, destination, startDate, endDate, cabin
         console.error('Search failed:', error);
         return null;
     }
+}
+
+function buildAuthHeaders() {
+    if (!userApiKey) return {};
+    if (resolveAuthMethod() === AUTH_METHODS.OAUTH) {
+        return { Authorization: `Bearer ${userApiKey}` };
+    }
+    return { 'x-api-key': userApiKey };
 }
 
 // ---- Rendering ----
@@ -866,7 +900,7 @@ function closeModal() {
     document.getElementById('trip-modal').classList.add('hidden');
 }
 
-function handleTripSubmit(e) {
+async function handleTripSubmit(e) {
     e.preventDefault();
     const id = document.getElementById('trip-id').value;
     const origin = document.getElementById('trip-origin').value.trim().toUpperCase();
@@ -877,6 +911,8 @@ function handleTripSubmit(e) {
     const seats = parseInt(document.getElementById('trip-seats').value, 10);
 
     if (!origin || !destination || !startDate || !endDate) return;
+
+    let addedTripId = null;
 
     if (id) {
         const trip = trips.find(t => t.id === id);
@@ -901,6 +937,7 @@ function handleTripSubmit(e) {
             createdAt: Date.now(),
         };
         trips.push(newTrip);
+        addedTripId = newTrip.id;
     }
 
     // Update defaults for next new trip
@@ -912,7 +949,11 @@ function handleTripSubmit(e) {
     saveCache();
     closeModal();
     renderDashboard();
-    refreshAll();
+
+    // Only auto-refresh newly created trip.
+    if (addedTripId) {
+        await refreshTrip(addedTripId);
+    }
 }
 
 function deleteTrip(id) {
@@ -1175,12 +1216,17 @@ function updateDetailResults(trip, cache) {
             const miles = a.MileageCost || '—';
             const seats = a.RemainingSeats > 0 ? a.RemainingSeats : '—';
 
-            const isQatar = a.Source === 'qatar';
-            const clickableClass = isQatar ? 'clickable' : '';
-            const dataIndex = isQatar ? `data-index="${index}"` : '';
+            const source = String(a.Source || '').toLowerCase();
+            const isQatar = source === 'qatar';
+            const isFinnair = source === 'finnair';
+            const clickableClass = (isQatar || isFinnair) ? 'clickable' : '';
+            const dataIndex = (isQatar || isFinnair) ? `data-index="${index}"` : '';
+            const clickTitle = isQatar
+                ? 'Click to view on Qatar Airways'
+                : (isFinnair ? 'Click to view on Finnair' : '');
 
             return `
-            <div class="avail-row ${clickableClass}" ${dataIndex} ${isQatar ? 'title="Click to view on Qatar Airways"' : ''}>
+            <div class="avail-row ${clickableClass}" ${dataIndex} ${clickTitle ? `title="${clickTitle}"` : ''}>
               <div class="avail-date">${formatDate(date)}</div>
               <div class="avail-route">${route}</div>
               <div class="avail-program">${program}</div>
@@ -1195,12 +1241,15 @@ function updateDetailResults(trip, cache) {
 
     resultsEl.innerHTML = html;
 
-    // Attach click listeners for Qatar deep links
+    // Attach click listeners for program deep links
     resultsEl.querySelectorAll('.avail-row.clickable').forEach(row => {
         row.addEventListener('click', () => {
             const index = row.dataset.index;
             const item = cache.data[index];
-            const url = generateQatarLink(item, trip.cabin, trip.origin, trip.destination);
+            const source = String(item?.Source || '').toLowerCase();
+            const url = source === 'qatar'
+                ? generateQatarLink(item, trip.cabin, trip.origin, trip.destination)
+                : generateFinnairLink(item, trip.cabin, trip.origin, trip.destination);
             window.open(url, '_blank');
         });
     });
@@ -1226,54 +1275,7 @@ async function refreshAll() {
     }
 
     for (const trip of trips) {
-        // Update only this card to "loading" state
-        availabilityCache[trip.id] = { status: 'loading', data: null, lastFetched: null };
-        updateTripCard(trip.id);
-
-        const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate, trip.cabin, trip.seats);
-
-        if (result && result.data && result.data.length > 0) {
-            const cabinPrefix = getCabinPrefix(trip.cabin);
-            const relevantData = result.data.filter(item => {
-                const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
-                const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
-                const sourceId = item.Source || item.source;
-
-                return available === true &&
-                    remaining >= trip.seats &&
-                    (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
-            }).map(item => ({
-                ...item,
-                MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
-                RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
-                Source: item.Source || item.source || 'Unknown',
-                Date: item.Date || item.date
-            }));
-
-            const count = relevantData.length;
-            availabilityCache[trip.id] = {
-                status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
-                data: relevantData,
-                lastFetched: Date.now(),
-            };
-        } else if (result) {
-            availabilityCache[trip.id] = {
-                status: 'unavailable',
-                data: result.data || [],
-                lastFetched: Date.now(),
-            };
-        } else {
-            availabilityCache[trip.id] = {
-                status: 'unavailable',
-                data: [],
-                lastFetched: Date.now(),
-            };
-        }
-
-        saveCache();
-        // Update only this card with the result
-        updateTripCard(trip.id);
-
+        await refreshTrip(trip.id);
         await sleep(300);
     }
 
@@ -1282,6 +1284,57 @@ async function refreshAll() {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
     Refresh All
   `;
+}
+
+async function refreshTrip(tripId) {
+    const trip = trips.find(t => t.id === tripId);
+    if (!trip) return;
+
+    availabilityCache[trip.id] = { status: 'loading', data: null, lastFetched: null };
+    updateTripCard(trip.id);
+
+    const result = await searchAvailability(trip.origin, trip.destination, trip.startDate, trip.endDate, trip.cabin, trip.seats);
+
+    if (result && result.data && result.data.length > 0) {
+        const cabinPrefix = getCabinPrefix(trip.cabin);
+        const relevantData = result.data.filter(item => {
+            const available = item[`${cabinPrefix}Available`] || item[`${cabinPrefix}AvailableRaw`];
+            const remaining = Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0);
+            const sourceId = item.Source || item.source;
+
+            return available === true &&
+                remaining >= trip.seats &&
+                (settings.programs.includes(sourceId) || settings.programs.includes(sourceId?.toLowerCase()));
+        }).map(item => ({
+            ...item,
+            MileageCost: Number(item[`${cabinPrefix}MileageCostRaw`] || item[`${cabinPrefix}MileageCost`] || 0),
+            RemainingSeats: Number(item[`${cabinPrefix}RemainingSeatsRaw`] || item[`${cabinPrefix}RemainingSeats`] || 0),
+            Source: item.Source || item.source || 'Unknown',
+            Date: item.Date || item.date
+        }));
+
+        const count = relevantData.length;
+        availabilityCache[trip.id] = {
+            status: count > 0 ? (count > 5 ? 'available' : 'limited') : 'unavailable',
+            data: relevantData,
+            lastFetched: Date.now(),
+        };
+    } else if (result) {
+        availabilityCache[trip.id] = {
+            status: 'unavailable',
+            data: result.data || [],
+            lastFetched: Date.now(),
+        };
+    } else {
+        availabilityCache[trip.id] = {
+            status: 'unavailable',
+            data: [],
+            lastFetched: Date.now(),
+        };
+    }
+
+    saveCache();
+    updateTripCard(trip.id);
 }
 
 // ---- Utilities ----
@@ -1635,9 +1688,19 @@ function mountOAuthConnectUi() {
 function updateOAuthStatusUi() {
     if (!oauthSession?.token?.accessToken) {
         setOAuthStatus('error', 'Not connected');
+        oauthConnectButtonController?.setState({
+            connected: false,
+            disabled: false,
+            label: null,
+        });
         return;
     }
     setOAuthStatus('connected', 'Connected');
+    oauthConnectButtonController?.setState({
+        connected: true,
+        disabled: true,
+        label: 'Connected successfully',
+    });
 }
 
 async function ensureActiveOAuthToken() {

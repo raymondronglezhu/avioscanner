@@ -41,22 +41,68 @@ try {
     console.error('❌ Failed to load airports:', error);
 }
 
-// Helper: Get API Key (from frontend settings only)
-function getApiKey(req, res, { silent = false } = {}) {
-    const key = req.headers['x-api-key'];
-    if (key) return key;
-
+// Helper: Build upstream Seats auth headers from frontend credentials.
+// API key -> Partner-Authorization
+// OAuth token -> Authorization: Bearer ...
+function getSeatsAuthHeaders(req, res, { silent = false } = {}) {
+    const apiKeyHeader = req.headers['x-api-key'];
     const authHeader = req.headers.authorization || '';
-    if (authHeader.startsWith('Bearer ')) {
-        return authHeader.slice('Bearer '.length).trim();
-    }
 
-    if (!key) {
+    const hasApiKey = Boolean(apiKeyHeader);
+    const hasBearer = authHeader.startsWith('Bearer ');
+
+    // Enforce mutually exclusive auth modes.
+    if (hasApiKey && hasBearer) {
         if (silent) return null;
-        res.status(401).json({ error: 'No API key provided. Set your key in Settings.' });
+        res.status(400).json({
+            error: 'Provide exactly one auth mode: API key or OAuth bearer token.',
+        });
         return null;
     }
-    return key;
+
+    if (hasBearer) {
+        const token = authHeader.slice('Bearer '.length).trim();
+        return { 'Partner-Authorization': token };
+    }
+
+    if (hasApiKey) {
+        return { 'Partner-Authorization': apiKeyHeader };
+    }
+
+    if (silent) return null;
+    res.status(401).json({ error: 'No credentials provided. Connect OAuth or set API key in Settings.' });
+    return null;
+}
+
+async function fetchPartnerApiWithFallback(req, url, authHeaders) {
+    const incomingAuth = req.headers.authorization || '';
+    const hasBearer = incomingAuth.startsWith('Bearer ');
+    const bearerToken = hasBearer ? incomingAuth.slice('Bearer '.length).trim() : '';
+
+    const attempts = [{ headers: authHeaders, label: 'primary' }];
+
+    // OAuth fallback strategies: Seats docs are explicit for Partner-Authorization,
+    // but this keeps compatibility if token format expectations differ.
+    if (hasBearer) {
+        attempts.push({
+            headers: { 'Partner-Authorization': `Bearer ${bearerToken}` },
+            label: 'partner-bearer',
+        });
+        attempts.push({
+            headers: { Authorization: incomingAuth },
+            label: 'authorization-bearer',
+        });
+    }
+
+    let lastResponse = null;
+    for (const attempt of attempts) {
+        const response = await fetch(url, { headers: attempt.headers });
+        lastResponse = response;
+        if (response.ok) return response;
+        if (response.status !== 401 && response.status !== 403) return response;
+    }
+
+    return lastResponse;
 }
 
 function isOAuthConfigured() {
@@ -149,14 +195,14 @@ app.use(express.json());
 // Health check — validates the key against seats.aero
 // Hits /availability with no params: valid key returns 400 (missing param), invalid key returns 401.
 app.get('/api/health', async (req, res) => {
-    const key = getApiKey(req, res, { silent: true });
-    if (!key) {
+    const authHeaders = getSeatsAuthHeaders(req, res, { silent: true });
+    if (!authHeaders) {
         return res.json({ status: 'ok', hasApiKey: false });
     }
 
     try {
         const response = await fetch(`${PARTNER_API_URL}/availability`, {
-            headers: { 'Partner-Authorization': key },
+            headers: authHeaders,
         });
 
         // 401 = bad key, 400 = key accepted but missing params (i.e. valid key)
@@ -376,11 +422,9 @@ app.get('/api/search', async (req, res) => {
         console.log(`🔍 [Search Request] ${apiUrl}`);
         console.log(`   Params:`, req.query);
 
-        const key = getApiKey(req, res);
-        if (!key) return;
-        const response = await fetch(apiUrl, {
-            headers: { 'Partner-Authorization': key },
-        });
+        const authHeaders = getSeatsAuthHeaders(req, res);
+        if (!authHeaders) return;
+        const response = await fetchPartnerApiWithFallback(req, apiUrl, authHeaders);
 
         if (!response.ok) {
             console.error(`❌ External API Error: ${response.status} ${response.statusText}`);
@@ -409,11 +453,13 @@ app.get('/api/search', async (req, res) => {
 app.get('/api/availability', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
-        const key = getApiKey(req, res);
-        if (!key) return;
-        const response = await fetch(`${PARTNER_API_URL}/availability?${params.toString()}`, {
-            headers: { 'Partner-Authorization': key },
-        });
+        const authHeaders = getSeatsAuthHeaders(req, res);
+        if (!authHeaders) return;
+        const response = await fetchPartnerApiWithFallback(
+            req,
+            `${PARTNER_API_URL}/availability?${params.toString()}`,
+            authHeaders
+        );
         const data = await response.json();
         res.json(data);
     } catch (error) {
@@ -425,11 +471,13 @@ app.get('/api/availability', async (req, res) => {
 // Proxy: Get Trips
 app.get('/api/trips/:id', async (req, res) => {
     try {
-        const key = getApiKey(req, res);
-        if (!key) return;
-        const response = await fetch(`${PARTNER_API_URL}/trips/${req.params.id}`, {
-            headers: { 'Partner-Authorization': key },
-        });
+        const authHeaders = getSeatsAuthHeaders(req, res);
+        if (!authHeaders) return;
+        const response = await fetchPartnerApiWithFallback(
+            req,
+            `${PARTNER_API_URL}/trips/${req.params.id}`,
+            authHeaders
+        );
         const data = await response.json();
         res.json(data);
     } catch (error) {
@@ -442,11 +490,13 @@ app.get('/api/trips/:id', async (req, res) => {
 app.get('/api/routes', async (req, res) => {
     try {
         const params = new URLSearchParams(req.query);
-        const key = getApiKey(req, res);
-        if (!key) return;
-        const response = await fetch(`${PARTNER_API_URL}/routes?${params.toString()}`, {
-            headers: { 'Partner-Authorization': key },
-        });
+        const authHeaders = getSeatsAuthHeaders(req, res);
+        if (!authHeaders) return;
+        const response = await fetchPartnerApiWithFallback(
+            req,
+            `${PARTNER_API_URL}/routes?${params.toString()}`,
+            authHeaders
+        );
         const data = await response.json();
         res.json(data);
     } catch (error) {

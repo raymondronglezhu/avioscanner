@@ -2,10 +2,13 @@ import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConnectButton } from '@seats-aero/react-blocks';
 import seatsBlocksStyles from '@seats-aero/react-blocks/styles.css?inline';
+import seatsLogo from './seats-logo.png';
 
 const DEFAULT_STATE = {
+    connected: false,
     disabled: false,
     hovered: false,
+    label: null,
     size: 'sm',
 };
 
@@ -22,6 +25,11 @@ function getButtonStyle(state) {
         : 'none';
 
     return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '8px',
+        whiteSpace: 'nowrap',
         background: bg,
         color: '#f8fafc',
         border,
@@ -31,6 +39,9 @@ function getButtonStyle(state) {
         cursor: isInteractive ? 'pointer' : 'not-allowed',
         boxShadow: shadow,
         transition: 'background 120ms ease, box-shadow 120ms ease, border-color 120ms ease',
+        fontFamily: 'Inter, sans-serif',
+        fontSize: state.size === 'sm' ? '12px' : '16px',
+        lineHeight: state.size === 'sm' ? '1' : '1.5',
         fontWeight: 600,
     };
 }
@@ -53,6 +64,29 @@ export function mountOAuthConnectButton(container, onClick) {
     let state = { ...DEFAULT_STATE };
 
     function render() {
+        if (state.connected) {
+            root.render(
+                createElement('button', {
+                    type: 'button',
+                    disabled: true,
+                    style: getButtonStyle({ ...state, disabled: true }),
+                }, [
+                    createElement('img', {
+                        key: 'logo',
+                        src: seatsLogo,
+                        alt: 'seats.aero logo',
+                        style: {
+                            height: state.size === 'sm' ? '20px' : '30px',
+                            width: 'auto',
+                            display: 'block',
+                        },
+                    }),
+                    createElement('span', { key: 'label' }, state.label || 'Connected successfully'),
+                ])
+            );
+            return;
+        }
+
         root.render(
             createElement(ConnectButton, {
                 size: state.size,
@@ -72,7 +106,7 @@ export function mountOAuthConnectButton(container, onClick) {
                 },
                 style: getButtonStyle(state),
                 type: 'button',
-            })
+            }, state.label || undefined)
         );
     }
 

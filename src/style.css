@@ -332,6 +332,38 @@ body::before {
   max-width: 400px;
 }
 
+/* --- Powered By --- */
+.powered-by-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  padding: 0 var(--space-lg) 8px;
+}
+
+.powered-by-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: var(--font-xs);
+  transition: color var(--transition-fast);
+}
+
+.powered-by-link:hover {
+  color: var(--text-primary);
+}
+
+.powered-by-logo {
+  width: 22px;
+  height: auto;
+  display: block;
+}
+
 /* --- Trips Container --- */
 .trips-container {
   position: relative;
