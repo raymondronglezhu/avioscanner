@@ -37,7 +37,7 @@ Located in `searchAvailability()` (`src/main.js`), this is critical for API perf
 
 ## 🛠️ Infrastructure & Setup
 -   **API Key (current)**: User enters key in the frontend Settings panel; app stores it in `localStorage` and sends it to the proxy as `x-api-key`.
--   **OAuth2 (planned)**: Backend-managed token exchange and session handling.
+-   **OAuth2 (beta)**: Backend-managed token exchange and refresh endpoints (`/api/oauth/start`, `/api/oauth/callback`, `/api/oauth/refresh`) with frontend popup connect flow.
 -   **Development**: `npm run dev` starts both the Vite frontend and the Express backend (proxied via `vite.config.js`).
 
 ## 📋 Recommended Next Steps

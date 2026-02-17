@@ -21,9 +21,12 @@
   },
   "homepage": "https://github.com/raymondronglezhu/avioscanner#readme",
   "dependencies": {
+    "@seats-aero/react-blocks": "^0.0.11",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "vite": "^6.3.5"
   },
   "devDependencies": {

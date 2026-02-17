@@ -32,11 +32,11 @@ Most award tools are optimized for ad-hoc search. Avioscanner is optimized for r
 
 ## 🔐 Authentication
 
-Avioscanner is currently frontend-key based, with OAuth2 planned:
+Avioscanner supports both frontend-key auth and an OAuth2 beta flow:
 
 - **Current setup**: user enters a Seats.aero Partner API key in the app Settings panel.  
   The key is stored in browser `localStorage` and sent to the backend proxy via `x-api-key`.
-- **Planned**: OAuth2 “Login with Seats.aero” install flow
+- **OAuth2 beta**: click **Connect with Seats.aero** in Settings after configuring backend OAuth env vars.
 
 ## 🚀 Getting Started
 
@@ -55,12 +55,14 @@ Avioscanner is currently frontend-key based, with OAuth2 planned:
    # Optional local port override (default: 3001)
    # PORT=3001
 
-   # OAuth2 mode (coming soon)
+   # OAuth2 mode (beta)
    # SEATS_AERO_CLIENT_ID=your_client_id_here
    # SEATS_AERO_CLIENT_SECRET=your_client_secret_here
    # SEATS_AERO_REDIRECT_URI=https://your-domain.com/api/oauth/callback
    ```
-4. Start the app and paste your Seats.aero API key in the Settings panel.
+4. Start the app and authenticate in Settings:
+   - Paste your Seats.aero API key, or
+   - Use **Connect with Seats.aero** (OAuth2 beta) if configured.
 
 ### Running Locally
 Start the development server (runs both frontend and backend):

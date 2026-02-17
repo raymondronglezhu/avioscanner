@@ -1,9 +1,17 @@
 /* =============================================
    AVIOSCANNER — Main Application Logic
    ============================================= */
+import { mountOAuthConnectButton } from './oauth-connect-button.jsx';
 
 // ---- Avios Programs (Finnair + Qatar) ----
 const AVIOS_PROGRAMS = ['finnair', 'qatar'];
+const OAUTH_STORAGE_KEY = 'seats_aero_oauth_session';
+const OAUTH_REFRESH_BUFFER_MS = 60 * 1000;
+const AUTH_METHOD_STORAGE_KEY = 'seats_aero_auth_method';
+const AUTH_METHODS = {
+    API_KEY: 'api_key',
+    OAUTH: 'oauth',
+};
 
 // ---- State ----
 let trips = [];
@@ -18,6 +26,14 @@ let availabilityCache = {}; // tripId -> { status, data, lastFetched }
 let currentDetailTripId = null;
 let userApiKey = localStorage.getItem('seats_aero_api_key') || '';
 let apiVerified = localStorage.getItem('seats_aero_api_verified') === userApiKey && !!userApiKey;
+let oauthSession = loadOAuthSession();
+let authMethod = loadAuthMethod();
+let oauthConnectButtonController = null;
+
+if (!userApiKey && oauthSession?.token?.accessToken && authMethod !== AUTH_METHODS.API_KEY) {
+    userApiKey = oauthSession.token.accessToken;
+    apiVerified = true;
+}
 
 // ---- Airport Database (Dynamic) ----
 let AIRPORTS = [];
@@ -748,7 +764,12 @@ function getStatusText(cache) {
 
 // ---- Settings Panel ----
 function openSettings() {
-    document.getElementById('user-api-key').value = userApiKey;
+    const keyInput = document.getElementById('user-api-key');
+    if (keyInput) {
+        keyInput.value = authMethod === AUTH_METHODS.API_KEY ? userApiKey : '';
+    }
+    updateAuthMethodUi();
+    updateOAuthStatusUi();
     document.getElementById('settings-panel').classList.remove('hidden');
 }
 
@@ -1316,10 +1337,18 @@ function sleep(ms) {
 async function init() {
     loadState(); // Load settings first to get API Key
     userApiKey = localStorage.getItem('seats_aero_api_key') || ''; // Reload to be sure
+    apiVerified = localStorage.getItem('seats_aero_api_verified') === userApiKey && !!userApiKey;
+    oauthSession = loadOAuthSession();
+    authMethod = resolveAuthMethod();
+    await hydrateOAuthResultFromUrl();
+
+    if (!userApiKey && authMethod === AUTH_METHODS.OAUTH) {
+        await ensureActiveOAuthToken();
+    }
 
     if (!userApiKey) {
         setTimeout(() => {
-            alert('Welcome to Avioscanner! Please enter your Seats.aero API Key in Settings to get started.');
+            alert('Welcome to Avioscanner! Choose an API connection method in Settings to get started.');
             openSettings();
         }, 500);
     } else {
@@ -1330,12 +1359,13 @@ async function init() {
 
     // Set initial API key status based on stored key
     if (userApiKey && apiVerified) {
-        setApiStatus('connected', 'Valid key');
+        setApiStatus('connected', 'Connected');
     } else if (userApiKey) {
-        setApiStatus('warning', 'Key not verified');
+        setApiStatus('warning', 'Unverified');
     } else {
-        setApiStatus('error', 'Key required');
+        setApiStatus('error', 'No key');
     }
+    updateOAuthStatusUi();
 
     // --- Event Listeners ---
 
@@ -1346,7 +1376,10 @@ async function init() {
 
     // API Key (inside settings)
     setupApiKeyInput();
+    setupAuthMethodSelector();
+    mountOAuthConnectUi();
     document.getElementById('key-save-btn').addEventListener('click', handleKeySave);
+    window.addEventListener('message', handleOAuthMessage);
 
     // Trip Modal
     document.getElementById('empty-add-btn').addEventListener('click', openAddModal);
@@ -1392,12 +1425,93 @@ function setApiStatus(state, text) {
     label.textContent = text;
 }
 
+function loadAuthMethod() {
+    const stored = localStorage.getItem(AUTH_METHOD_STORAGE_KEY);
+    if (stored === AUTH_METHODS.API_KEY || stored === AUTH_METHODS.OAUTH) {
+        return stored;
+    }
+    return null;
+}
+
+function resolveAuthMethod() {
+    if (authMethod === AUTH_METHODS.API_KEY || authMethod === AUTH_METHODS.OAUTH) {
+        return authMethod;
+    }
+    if (oauthSession?.token?.accessToken) {
+        return AUTH_METHODS.OAUTH;
+    }
+    if (userApiKey) {
+        return AUTH_METHODS.API_KEY;
+    }
+    return AUTH_METHODS.OAUTH;
+}
+
+function setAuthMethod(method, options = {}) {
+    const { persist = true } = options;
+    if (method !== AUTH_METHODS.API_KEY && method !== AUTH_METHODS.OAUTH) return;
+    authMethod = method;
+    if (persist) {
+        localStorage.setItem(AUTH_METHOD_STORAGE_KEY, method);
+    }
+    updateAuthMethodUi();
+}
+
+function setupAuthMethodSelector() {
+    const apiTab = document.getElementById('auth-tab-api');
+    const oauthTab = document.getElementById('auth-tab-oauth');
+    if (!apiTab || !oauthTab) return;
+
+    setAuthMethod(resolveAuthMethod());
+    apiTab.addEventListener('click', () => setAuthMethod(AUTH_METHODS.API_KEY));
+    oauthTab.addEventListener('click', () => setAuthMethod(AUTH_METHODS.OAUTH));
+
+    const orderedTabs = [oauthTab, apiTab];
+    orderedTabs.forEach((tab, index) => {
+        tab.addEventListener('keydown', (event) => {
+            let nextIndex = index;
+            if (event.key === 'ArrowRight') nextIndex = (index + 1) % orderedTabs.length;
+            else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + orderedTabs.length) % orderedTabs.length;
+            else if (event.key === 'Home') nextIndex = 0;
+            else if (event.key === 'End') nextIndex = orderedTabs.length - 1;
+            else return;
+
+            event.preventDefault();
+            const nextTab = orderedTabs[nextIndex];
+            nextTab.focus();
+            setAuthMethod(nextTab.id === 'auth-tab-api' ? AUTH_METHODS.API_KEY : AUTH_METHODS.OAUTH);
+        });
+    });
+}
+
+function updateAuthMethodUi() {
+    const apiTab = document.getElementById('auth-tab-api');
+    const oauthTab = document.getElementById('auth-tab-oauth');
+    const apiSection = document.getElementById('settings-api-key-section');
+    const oauthSection = document.getElementById('settings-oauth-section');
+    if (!apiTab || !oauthTab || !apiSection || !oauthSection) return;
+
+    const method = resolveAuthMethod();
+    const apiActive = method === AUTH_METHODS.API_KEY;
+
+    apiTab.classList.toggle('active', apiActive);
+    oauthTab.classList.toggle('active', !apiActive);
+    apiTab.setAttribute('aria-selected', String(apiActive));
+    oauthTab.setAttribute('aria-selected', String(!apiActive));
+    apiTab.tabIndex = apiActive ? 0 : -1;
+    oauthTab.tabIndex = apiActive ? -1 : 0;
+
+    apiSection.classList.toggle('hidden', !apiActive);
+    oauthSection.classList.toggle('hidden', apiActive);
+    apiSection.hidden = !apiActive;
+    oauthSection.hidden = apiActive;
+}
+
 function setupApiKeyInput() {
     const keyInput = document.getElementById('user-api-key');
     if (!keyInput) return;
 
     keyInput.addEventListener('input', () => {
-        setApiStatus('error', 'Unverified key');
+        setApiStatus('warning', 'Unverified');
         apiVerified = false;
         localStorage.removeItem('seats_aero_api_verified');
     });
@@ -1409,13 +1523,13 @@ async function handleKeySave() {
     const newKey = keyInput.value.trim();
 
     if (!newKey) {
-        setApiStatus('error', 'Key required');
+        setApiStatus('error', 'No key');
         return;
     }
 
     saveBtn.disabled = true;
     saveBtn.textContent = 'Verifying...';
-    setApiStatus('warning', 'Verifying...');
+    setApiStatus('warning', 'Verifying');
 
     const isValid = await checkHealth(newKey);
 
@@ -1424,7 +1538,8 @@ async function handleKeySave() {
         apiVerified = true;
         localStorage.setItem('seats_aero_api_key', newKey);
         localStorage.setItem('seats_aero_api_verified', newKey);
-        setApiStatus('connected', 'Valid key');
+        setAuthMethod(AUTH_METHODS.API_KEY);
+        setApiStatus('connected', 'Connected');
         loadAirports();
     } else {
         apiVerified = false;
@@ -1434,4 +1549,208 @@ async function handleKeySave() {
 
     saveBtn.disabled = false;
     saveBtn.textContent = 'Verify & Save';
+}
+
+function loadOAuthSession() {
+    try {
+        const raw = localStorage.getItem(OAUTH_STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed?.token?.accessToken) return null;
+        return parsed;
+    } catch {
+        return null;
+    }
+}
+
+function saveOAuthSession(session) {
+    oauthSession = session;
+    localStorage.setItem(OAUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function clearOAuthSession() {
+    oauthSession = null;
+    localStorage.removeItem(OAUTH_STORAGE_KEY);
+}
+
+function setOAuthStatus(state, text) {
+    const dot = document.getElementById('oauth-status-dot');
+    const label = document.getElementById('oauth-status-text');
+    if (!dot || !label) return;
+    dot.className = 'status-dot';
+    if (state) dot.classList.add(state);
+    label.textContent = text;
+}
+
+function mountOAuthConnectUi() {
+    const mountNode = document.getElementById('oauth-connect-mount');
+    if (!mountNode || oauthConnectButtonController) return;
+    oauthConnectButtonController = mountOAuthConnectButton(mountNode, handleOAuthConnect);
+}
+
+function updateOAuthStatusUi() {
+    if (!oauthSession?.token?.accessToken) {
+        setOAuthStatus('error', 'Not connected');
+        return;
+    }
+    setOAuthStatus('connected', 'Connected');
+}
+
+async function ensureActiveOAuthToken() {
+    if (!oauthSession?.token) return false;
+
+    const token = oauthSession.token;
+    const hasUnexpiredToken = token.accessToken && (!token.expiresAt || (token.expiresAt - Date.now() > OAUTH_REFRESH_BUFFER_MS));
+    if (hasUnexpiredToken) {
+        userApiKey = token.accessToken;
+        apiVerified = true;
+        localStorage.setItem('seats_aero_api_key', userApiKey);
+        localStorage.setItem('seats_aero_api_verified', userApiKey);
+        updateOAuthStatusUi();
+        return true;
+    }
+
+    if (!token.refreshToken) {
+        clearOAuthSession();
+        updateOAuthStatusUi();
+        return false;
+    }
+
+    try {
+        const response = await fetch('/api/oauth/refresh', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: token.refreshToken }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`OAuth refresh failed with ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data?.success || !data?.token?.accessToken) {
+            throw new Error('OAuth refresh response missing token.');
+        }
+
+        saveOAuthSession({
+            ...oauthSession,
+            token: data.token,
+        });
+
+        userApiKey = data.token.accessToken;
+        apiVerified = true;
+        localStorage.setItem('seats_aero_api_key', userApiKey);
+        localStorage.setItem('seats_aero_api_verified', userApiKey);
+        updateOAuthStatusUi();
+        return true;
+    } catch (error) {
+        console.warn('Failed to refresh OAuth token:', error);
+        clearOAuthSession();
+        updateOAuthStatusUi();
+        return false;
+    }
+}
+
+async function handleOAuthConnect() {
+    oauthConnectButtonController?.setState({ disabled: true });
+    setOAuthStatus('warning', 'Opening');
+
+    try {
+        const statusResponse = await fetch('/api/oauth/status');
+        const statusData = await statusResponse.json();
+
+        if (!statusResponse.ok || !statusData.enabled) {
+            throw new Error('OAuth unavailable');
+        }
+
+        const popup = window.open(
+            `/api/oauth/start?origin=${encodeURIComponent(window.location.origin)}`,
+            'seats-oauth',
+            'width=520,height=760,menubar=no,toolbar=no,location=no,status=no'
+        );
+
+        if (!popup) {
+            throw new Error('Enable popups');
+        }
+
+        setOAuthStatus('warning', 'Sign in popup');
+    } catch (error) {
+        setOAuthStatus('error', error.message || 'Connect failed');
+    } finally {
+        oauthConnectButtonController?.setState({ disabled: false });
+    }
+}
+
+async function handleOAuthMessage(event) {
+    const data = event.data;
+    if (!data || data.type !== 'seats_oauth_result') return;
+
+    if (!data.resultId) {
+        setOAuthStatus('error', 'Connect failed');
+        return;
+    }
+
+    const payload = await consumeOAuthResult(data.resultId);
+    if (!payload) {
+        setOAuthStatus('error', 'Result expired');
+        return;
+    }
+
+    applyOAuthResult(payload);
+}
+
+async function hydrateOAuthResultFromUrl() {
+    const url = new URL(window.location.href);
+    const resultId = url.searchParams.get('oauth_result');
+    if (!resultId) return;
+
+    const payload = await consumeOAuthResult(resultId);
+    if (payload) {
+        applyOAuthResult(payload);
+    } else {
+        setOAuthStatus('error', 'Result expired');
+    }
+
+    url.searchParams.delete('oauth_result');
+    window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+}
+
+async function consumeOAuthResult(resultId) {
+    try {
+        const response = await fetch(`/api/oauth/result/${encodeURIComponent(resultId)}`);
+        if (!response.ok) return null;
+        return await response.json();
+    } catch {
+        return null;
+    }
+}
+
+function applyOAuthResult(data) {
+    if (!data.success) {
+        const err = (data.error || '').toLowerCase();
+        setOAuthStatus('error', err.includes('denied') ? 'Access denied' : 'Connect failed');
+        return;
+    }
+
+    if (!data.token?.accessToken) {
+        setOAuthStatus('error', 'Connect failed');
+        return;
+    }
+
+    saveOAuthSession({
+        connectedAt: Date.now(),
+        token: data.token,
+        user: data.user || null,
+    });
+
+    userApiKey = data.token.accessToken;
+    apiVerified = true;
+    localStorage.setItem('seats_aero_api_key', userApiKey);
+    localStorage.setItem('seats_aero_api_verified', userApiKey);
+    setAuthMethod(AUTH_METHODS.OAUTH);
+
+    setApiStatus('connected', 'Connected');
+    updateOAuthStatusUi();
+    loadAirports();
+    refreshAll();
 }

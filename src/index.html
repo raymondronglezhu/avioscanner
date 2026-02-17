@@ -52,7 +52,28 @@
       </div>
       <p class="settings-desc">Manage your API connection.</p>
       <div class="settings-form">
-        <div class="form-group settings-api-section">
+        <div class="auth-tabs" role="tablist" aria-label="Connection method">
+          <button type="button" id="auth-tab-oauth" class="auth-tab" role="tab" aria-selected="false"
+            aria-controls="settings-oauth-section" tabindex="-1">Use Pro Login</button>
+          <button type="button" id="auth-tab-api" class="auth-tab" role="tab" aria-selected="false"
+            aria-controls="settings-api-key-section" tabindex="-1">Paste API Key</button>
+        </div>
+        <div id="settings-oauth-section" class="form-group settings-api-section auth-section" role="tabpanel"
+          aria-labelledby="auth-tab-oauth">
+          <label>Seats.aero OAuth2 (Beta)</label>
+          <div class="input-with-action">
+            <div id="oauth-connect-mount"></div>
+          </div>
+          <div class="key-status-bar">
+            <div class="key-status-indicator">
+              <div id="oauth-status-dot" class="status-dot"></div>
+              <span id="oauth-status-text">Not connected</span>
+            </div>
+            <p class="input-hint">Login with your Pro account.</p>
+          </div>
+        </div>
+        <div id="settings-api-key-section" class="form-group settings-api-section auth-section" role="tabpanel"
+          aria-labelledby="auth-tab-api">
           <label>Seats.aero API Key</label>
           <div class="input-with-action">
             <input type="password" id="user-api-key" placeholder="Paste your key here..." />
@@ -61,7 +82,7 @@
           <div class="key-status-bar">
             <div class="key-status-indicator">
               <div id="api-status-dot" class="status-dot"></div>
-              <span id="api-status-text">Checking API...</span>
+              <span id="api-status-text">Not verified</span>
             </div>
             <p class="input-hint">Get your key at <a href="https://seats.aero/settings" target="_blank"
                 rel="noopener">seats.aero/settings</a></p>
