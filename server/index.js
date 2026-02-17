@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3001;
 
 const PARTNER_API_URL = 'https://seats.aero/partnerapi';
 const OAUTH_API_URL = 'https://seats.aero/oauth2';
-const OAUTH_SCOPE = 'openid';
+const OAUTH_SCOPE = 'openid profile email';
 const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 const OAUTH_RESULT_TTL_MS = 10 * 60 * 1000;
 
