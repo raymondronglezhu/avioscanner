@@ -16,8 +16,8 @@ This document provides a high-level context for continuing the development of **
 
 ### 2. Backend: Node/Express Proxy
 -   **File**: `server/index.js` acts as a thin proxy.
--   **Role**: Injects the `SEATS_AERO_API_KEY` (from `.env`) into the `Partner-Authorization` header for all requests to `https://seats.aero/partnerapi`.
--   **Benefit**: Keeps sensitive API keys off the client and bypasses CORS restrictions.
+-   **Role**: Forwards frontend-provided API keys (`x-api-key`) into the `Partner-Authorization` header for requests to `https://seats.aero/partnerapi`.
+-   **Benefit**: Bypasses CORS restrictions and centralizes API proxying/observability.
 
 ## 💡 Core Logic: The "Hybrid Strategy"
 Located in `searchAvailability()` (`src/main.js`), this is critical for API performance:
@@ -36,7 +36,8 @@ Located in `searchAvailability()` (`src/main.js`), this is critical for API perf
 -   **Availability Indicators**: Status dots (idle, loading, success, error) provide live feedback during scans.
 
 ## 🛠️ Infrastructure & Setup
--   **API Key**: Must be present in `.env` as `SEATS_AERO_API_KEY`.
+-   **API Key (current)**: User enters key in the frontend Settings panel; app stores it in `localStorage` and sends it to the proxy as `x-api-key`.
+-   **OAuth2 (planned)**: Backend-managed token exchange and session handling.
 -   **Development**: `npm run dev` starts both the Vite frontend and the Express backend (proxied via `vite.config.js`).
 
 ## 📋 Recommended Next Steps

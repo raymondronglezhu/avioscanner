@@ -1,10 +1,19 @@
 # ✈️ Avioscanner
 
-**Avioscanner** is a premium mileage award availability tracker. It allows you to monitor flight "Trip Ideas" across multiple airline mileage programs simultaneously, helping you find the absolute best deals for your next adventure.
+**Avioscanner** is an award-travel monitoring dashboard built for people who want to systematically track premium-cabin opportunities, not run one-off searches.
 
 Built for efficiency and elegance, Avioscanner leverages the [Seats.aero](https://seats.aero) Partner API to provide real-time status and mileage costs directly on your dashboard.
 
 ---
+
+## 🎯 How Avioscanner Is Different
+
+Most award tools are optimized for ad-hoc search. Avioscanner is optimized for repeat monitoring workflows:
+
+- **Trip-Idea First Model**: Save and manage recurring target routes/date windows as persistent “Trip Ideas.”
+- **Portfolio View, Not Single Query View**: Track multiple ideas simultaneously with at-a-glance status.
+- **Decision-Ready Summaries**: Surface the top cheapest options directly on each card so you can triage quickly.
+- **API-Efficient Scanning**: Uses a hybrid query strategy (broad vs targeted) to maximize useful results while controlling request load.
 
 ## ✨ Key Features
 
@@ -17,9 +26,17 @@ Built for efficiency and elegance, Avioscanner leverages the [Seats.aero](https:
 ## 🛠️ Technology Stack
 
 - **Frontend**: Vite + Vanilla JavaScript (ESM)
-- **Backend Proxy**: Node.js + Express (Handles API authentication and CORS)
+- **Backend Proxy**: Node.js + Express (handles API authentication and CORS)
 - **Styling**: Modern CSS3 with custom variables and flexbox layout
 - **API**: [Seats.aero Partner API](https://seats.aero/partnerapi)
+
+## 🔐 Authentication
+
+Avioscanner is currently frontend-key based, with OAuth2 planned:
+
+- **Current setup**: user enters a Seats.aero Partner API key in the app Settings panel.  
+  The key is stored in browser `localStorage` and sent to the backend proxy via `x-api-key`.
+- **Planned**: OAuth2 “Login with Seats.aero” install flow
 
 ## 🚀 Getting Started
 
@@ -33,17 +50,24 @@ Built for efficiency and elegance, Avioscanner leverages the [Seats.aero](https:
    ```bash
    npm install
    ```
-3. Create a `.env` file in the root directory and add your API key:
+3. (Optional) Create a `.env` file in the root directory for backend settings:
    ```env
-   SEATS_AERO_API_KEY=your_key_here
+   # Optional local port override (default: 3001)
+   # PORT=3001
+
+   # OAuth2 mode (coming soon)
+   # SEATS_AERO_CLIENT_ID=your_client_id_here
+   # SEATS_AERO_CLIENT_SECRET=your_client_secret_here
+   # SEATS_AERO_REDIRECT_URI=https://your-domain.com/api/oauth/callback
    ```
+4. Start the app and paste your Seats.aero API key in the Settings panel.
 
 ### Running Locally
 Start the development server (runs both frontend and backend):
 ```bash
 npm run dev
 ```
-The dashboard will be available at `http://localhost:5173`.
+The dashboard will be available at `http://localhost:3000`.
 
 ---
 

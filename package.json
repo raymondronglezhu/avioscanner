@@ -11,15 +11,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/raymondronglezhu/aeroscan.git"
+    "url": "git+https://github.com/raymondronglezhu/avioscanner.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/raymondronglezhu/aeroscan/issues"
+    "url": "https://github.com/raymondronglezhu/avioscanner/issues"
   },
-  "homepage": "https://github.com/raymondronglezhu/aeroscan#readme",
+  "homepage": "https://github.com/raymondronglezhu/avioscanner#readme",
   "dependencies": {
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
