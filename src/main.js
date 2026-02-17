@@ -763,7 +763,11 @@ function getStatusText(cache) {
 }
 
 // ---- Settings Panel ----
-function openSettings() {
+function openSettings(options = {}) {
+    const { focusOAuthTab = false } = options;
+    if (focusOAuthTab) {
+        setAuthMethod(AUTH_METHODS.OAUTH);
+    }
     const keyInput = document.getElementById('user-api-key');
     if (keyInput) {
         keyInput.value = authMethod === AUTH_METHODS.API_KEY ? userApiKey : '';
@@ -771,6 +775,10 @@ function openSettings() {
     updateAuthMethodUi();
     updateOAuthStatusUi();
     document.getElementById('settings-panel').classList.remove('hidden');
+
+    if (focusOAuthTab) {
+        document.getElementById('auth-tab-oauth')?.focus();
+    }
 }
 
 function closeSettings() {
@@ -1333,6 +1341,39 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+let toastTimer = null;
+
+function dismissToast() {
+    const existing = document.getElementById('app-toast');
+    if (!existing) return;
+    existing.classList.remove('visible');
+    setTimeout(() => existing.remove(), 220);
+}
+
+function showToast(message, options = {}) {
+    const { persistent = false, durationMs = 2600 } = options;
+    const existing = document.getElementById('app-toast');
+    if (existing) existing.remove();
+
+    if (toastTimer) {
+        clearTimeout(toastTimer);
+        toastTimer = null;
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'app-toast';
+    toast.className = 'app-toast';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => toast.classList.add('visible'));
+    if (!persistent) {
+        toastTimer = setTimeout(() => {
+            dismissToast();
+        }, durationMs);
+    }
+}
+
 // ---- Init ----
 async function init() {
     loadState(); // Load settings first to get API Key
@@ -1344,15 +1385,6 @@ async function init() {
 
     if (!userApiKey && authMethod === AUTH_METHODS.OAUTH) {
         await ensureActiveOAuthToken();
-    }
-
-    if (!userApiKey) {
-        setTimeout(() => {
-            alert('Welcome to Avioscanner! Choose an API connection method in Settings to get started.');
-            openSettings();
-        }, 500);
-    } else {
-        await loadAirports();
     }
 
     renderDashboard();
@@ -1380,6 +1412,17 @@ async function init() {
     mountOAuthConnectUi();
     document.getElementById('key-save-btn').addEventListener('click', handleKeySave);
     window.addEventListener('message', handleOAuthMessage);
+
+    const hasOAuthToken = !!oauthSession?.token?.accessToken;
+    const hasApiKey = !!userApiKey;
+    if (!hasApiKey && !hasOAuthToken) {
+        setTimeout(() => {
+            showToast('Connect with Pro Login or paste API key.', { persistent: true });
+            openSettings({ focusOAuthTab: true });
+        }, 350);
+    } else {
+        await loadAirports();
+    }
 
     // Trip Modal
     document.getElementById('empty-add-btn').addEventListener('click', openAddModal);
@@ -1540,6 +1583,7 @@ async function handleKeySave() {
         localStorage.setItem('seats_aero_api_verified', newKey);
         setAuthMethod(AUTH_METHODS.API_KEY);
         setApiStatus('connected', 'Connected');
+        dismissToast();
         loadAirports();
     } else {
         apiVerified = false;
@@ -1750,6 +1794,7 @@ function applyOAuthResult(data) {
     setAuthMethod(AUTH_METHODS.OAUTH);
 
     setApiStatus('connected', 'Connected');
+    dismissToast();
     updateOAuthStatusUi();
     loadAirports();
     refreshAll();
